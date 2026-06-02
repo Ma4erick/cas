@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAS</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --sidebar-bg: #1a1d21;
+    --sidebar-hover: rgba(255,255,255,0.06);
+    --sidebar-active: rgba(255,255,255,0.1);
+    --main-bg: #1e1f22;
+    --surface: #2b2d31;
+    --border: rgba(255,255,255,0.08);
+    --text: #dce1e8;
+    --text-muted: #72767d;
+    --accent: #5865f2;
+    --input-bg: #2b2d31;
+    --danger: #e53e3e;
+    --online: #23a559;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--main-bg);
+    color: var(--text);
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    font-size: 15px;
+  }
+
+  /* Sidebar */
+  #sidebar {
+    width: 260px;
+    min-width: 260px;
+    background: var(--sidebar-bg);
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+  }
+
+  /* Top section */
+  #sidebar-top {
+    padding: 16px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  #sidebar-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 4px;
+  }
+
+  #brand-name {
+    font-size: 17px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.2px;
+  }
+
+  #brand-tagline {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  #new-session-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: none;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 12px;
+    transition: background 0.15s, color 0.15s;
+    font-family: inherit;
+  }
+  #new-session-btn:hover { background: var(--sidebar-hover); color: var(--text); }
+  #new-session-btn:hover .new-session-shortcut { opacity: 1; }
+
+  #new-session-icon {
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.7;
+  }
+
+  .new-session-shortcut {
+    margin-left: auto;
+    font-size: 11px;
+    opacity: 0;
+    color: var(--text-muted);
+    transition: opacity 0.15s;
+    letter-spacing: 0.2px;
+  }
+
+  /* Session list */
+  #session-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 8px 4px;
+  }
+
+  .recents-label {
+    padding: 8px 8px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+  }
+
+  .session-item {
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: 14px;
+    transition: background 0.1s, color 0.1s;
+    user-select: none;
+  }
+
+  .session-item:hover { background: var(--sidebar-hover); color: var(--text); }
+  .session-item.active { background: var(--sidebar-active); color: #fff; }
+
+  .session-item .hash { opacity: 0.4; flex-shrink: 0; font-size: 16px; line-height: 1; }
+  .session-label { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; }
+  .session-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-workdir { font-size: 11px; opacity: 0.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .session-count {
+    font-size: 11px;
+    opacity: 0.45;
+    flex-shrink: 0;
+  }
+
+  .session-unread {
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    padding: 0 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .session-delete {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 1px 3px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .session-item:hover .session-delete { display: block; }
+  .session-delete:hover { color: var(--danger); }
+
+  .discover-item { opacity: 0.65; }
+  .discover-item:hover { opacity: 1; }
+
+  .discover-join {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .discover-item:hover .discover-join { opacity: 1; }
+
+  /* Account bar — bottom of sidebar */
+  #account-bar {
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0,0,0,0.15);
+  }
+
+  #account-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+    text-transform: uppercase;
+    cursor: default;
+  }
+
+  #account-info { flex: 1; min-width: 0; }
+
+  #account-info label {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: block;
+    margin-bottom: 1px;
+  }
+
+  #sender-name {
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--text);
+    padding: 0;
+    font-size: 13px;
+    font-weight: 600;
+    outline: none;
+    font-family: inherit;
+  }
+
+  #sender-name:focus { color: #fff; }
+
+  #github-token-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px solid var(--border);
+  }
+
+  #github-token-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  #github-token {
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: 0;
+    font-size: 12px;
+    outline: none;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  #github-token:focus { color: var(--text); }
+  #github-token::placeholder { font-family: inherit; }
+
+  /* Main area */
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  #chat-header {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--main-bg);
+    min-height: 52px;
+  }
+
+  #chat-header .session-title {
+    font-weight: 700;
+    font-size: 15px;
+  }
+
+  #chat-header .session-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  #messages::-webkit-scrollbar { width: 6px; }
+  #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .msg-group {
+    display: flex;
+    flex-direction: column;
+    padding: 6px 0 2px;
+  }
+
+  .msg-group:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
+
+  .msg-meta {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .msg-meta .sender {
+    font-weight: 700;
+    color: var(--text);
+    font-size: 15px;
+  }
+
+  .msg-bubble {
+    line-height: 1.6;
+    word-break: break-word;
+    color: var(--text);
+    font-weight: 400;
+  }
+
+  .msg-bubble p { margin: 0 0 6px; }
+  .msg-bubble p:last-child { margin-bottom: 0; }
+
+  .msg-bubble pre {
+    background: #0d1117;
+    border-radius: 6px;
+    padding: 12px 16px;
+    overflow-x: auto;
+    margin: 8px 0;
+    font-size: 13px;
+    border: 1px solid var(--border);
+  }
+
+  .msg-bubble code:not(pre code) {
+    background: rgba(255,255,255,0.08);
+    border-radius: 3px;
+    padding: 2px 5px;
+    font-size: 13px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .msg-bubble pre code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .msg-bubble ul, .msg-bubble ol {
+    padding-left: 22px;
+    margin: 4px 0 6px;
+  }
+
+  .msg-bubble li { margin: 3px 0; }
+
+  .msg-bubble h1, .msg-bubble h2, .msg-bubble h3 {
+    margin: 12px 0 4px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .msg-bubble.callout { color: var(--text-muted); font-style: italic; }
+  .msg-bubble.callout .mention { color: var(--accent); font-style: normal; font-weight: 600; }
+
+  .msg-bubble blockquote {
+    border-left: 3px solid var(--accent);
+    padding-left: 12px;
+    margin: 6px 0;
+    color: var(--text-muted);
+  }
+
+  .msg-bubble table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 13px;
+  }
+  .msg-bubble th, .msg-bubble td {
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+  }
+  .msg-bubble th { background: rgba(255,255,255,0.05); }
+
+  .streaming-cursor {
+    display: inline-block;
+    width: 8px;
+    height: 14px;
+    background: var(--text-muted);
+    border-radius: 1px;
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+  /* Tool call / result blocks */
+  .tool-block {
+    margin: 6px 0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .tool-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: #1a1d21;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .tool-header .tool-icon { font-size: 14px; }
+  .tool-header .tool-name { font-weight: 600; color: var(--text); }
+  .tool-header .tool-summary { opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .tool-header .tool-chevron { margin-left: auto; transition: transform 0.2s; }
+  .tool-header.open .tool-chevron { transform: rotate(90deg); }
+  .tool-body {
+    display: none;
+    padding: 8px 10px;
+    background: #111214;
+    color: #a8b1be;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .tool-body.visible { display: block; }
+  .tool-block.error .tool-header { background: #2d1515; color: #fc8181; }
+  .tool-block.error .tool-name { color: #fc8181; }
+
+  /* System notices — join/leave/dir-change events */
+  .system-notice {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 6px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .system-notice::before,
+  .system-notice::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Empty state */
+  #empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    gap: 8px;
+  }
+  #empty-state h2 { font-size: 20px; color: var(--text); }
+  #empty-state p { font-size: 14px; }
+
+  /* Input area */
+  #input-area {
+    padding: 12px 24px 18px;
+    border-top: 1px solid var(--border);
+  }
+
+  #input-wrap {
+    display: flex;
+    gap: 8px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    transition: border-color 0.15s;
+  }
+  #input-wrap:focus-within { border-color: var(--accent); }
+
+  #message-input {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+    max-height: 200px;
+    font-family: inherit;
+  }
+
+  #message-input::placeholder { color: var(--text-muted); }
+
+  #send-btn {
+    background: var(--accent);
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    padding: 4px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    align-self: flex-end;
+    transition: opacity 0.15s;
+  }
+  #send-btn:hover { opacity: 0.85; }
+  #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    display: inline-block;
+  }
+  .status-dot.streaming { background: var(--online); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* New session modal */
+  #modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  #modal-overlay.open { display: flex; }
+
+  #modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    width: 400px;
+    max-width: calc(100vw - 40px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .modal-folder-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  #modal-folder {
+    flex: 1;
+    min-width: 0;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 14px;
+    outline: none;
+    font-family: inherit;
+  }
+  #modal-folder:focus { border-color: var(--accent); }
+
+  #modal-browse {
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    padding: 0 12px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+    font-family: inherit;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  #modal-browse:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+
+  #modal h2 { font-size: 17px; }
+
+  #modal input {
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: 14px;
+    outline: none;
+    width: 100%;
+  }
+  #modal input:focus { border-color: var(--accent); }
+  #modal input.invalid { border-color: var(--danger); animation: shake 0.25s ease; }
+  #modal .field-hint { font-size: 12px; color: var(--danger); margin-top: -6px; display: none; }
+  #modal .field-hint.visible { display: block; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+  }
+
+  #modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+  .btn {
+    padding: 7px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-ghost { background: var(--input-bg); color: var(--text); }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div id="sidebar-top">
+    <div id="sidebar-brand">
+      <span id="brand-name">CAS</span>
+      <span id="brand-tagline">Collaborative agent sessions</span>
+    </div>
+    <button id="new-session-btn">
+      <span id="new-session-icon">✦</span>
+      New Session
+      <span class="new-session-shortcut">⌘K</span>
+    </button>
+  </div>
+  <div id="session-list"></div>
+  <div id="account-bar">
+    <div id="account-avatar">?</div>
+    <div id="account-info">
+      <label>Logged in as</label>
+      <input id="sender-name" type="text" placeholder="Your name" maxlength="32">
+      <div id="github-token-row">
+        <span id="github-token-label">GitHub token</span>
+        <input id="github-token" type="password" placeholder="ghp_…" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="main">
+  <div id="chat-header">
+    <span class="status-dot" id="status-dot"></span>
+    <span class="session-title" id="session-title">Select a session</span>
+    <span class="session-meta" id="session-meta"></span>
+  </div>
+
+  <div id="messages">
+    <div id="empty-state">
+      <h2>No session selected</h2>
+      <p>Create a session or select one from the sidebar.</p>
+    </div>
+  </div>
+
+  <div id="input-area">
+    <div id="input-wrap">
+      <textarea id="message-input" rows="1" placeholder="Message the agent…" disabled></textarea>
+      <button id="send-btn" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-overlay">
+  <div id="modal">
+    <h2>New Session</h2>
+    <input id="modal-name" type="text" placeholder="Session name" maxlength="80">
+    <input id="modal-repo" type="text" placeholder="GitHub URL (optional — clones into projects folder)">
+    <div style="display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:12px;">
+      <div style="flex:1;height:1px;background:var(--border);"></div>or use existing folder<div style="flex:1;height:1px;background:var(--border);"></div>
+    </div>
+    <div class="modal-folder-row">
+      <select id="modal-folder">
+        <option value=""></option>
+      </select>
+      <button type="button" id="modal-browse">⟳ Refresh</button>
+    </div>
+    <p class="field-hint" id="workdir-hint">Please enter a session name</p>
+    <div id="modal-actions">
+      <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+      <button class="btn btn-primary" id="modal-create">Create</button>
+    </div>
+  </div>
+</div>
+
+<script>
+marked.setOptions({ breaks: true });
+
+const renderer = new marked.Renderer();
+const originalCode = renderer.code.bind(renderer);
+renderer.code = (code, lang) => {
+  const html = originalCode(code, lang);
+  return html;
+};
+marked.use({ renderer });
+
+const state = {
+  sessions: [],
+  activeSessionID: null,
+  ws: null,
+  streaming: false,
+  streamingMsgID: null,
+  streamBuffer: '',
+  agentName: 'Agent',
+};
+
+// Elements
+const sessionList   = document.getElementById('session-list');
+const sessionTitle  = document.getElementById('session-title');
+const sessionMeta   = document.getElementById('session-meta');
+const messages      = document.getElementById('messages');
+const emptyState    = document.getElementById('empty-state');
+const messageInput  = document.getElementById('message-input');
+const sendBtn       = document.getElementById('send-btn');
+const senderName    = document.getElementById('sender-name');
+const statusDot     = document.getElementById('status-dot');
+const newSessionBtn = document.getElementById('new-session-btn');
+const modalOverlay  = document.getElementById('modal-overlay');
+const modalName     = document.getElementById('modal-name');
+const modalFolder   = document.getElementById('modal-folder');
+const modalRepo     = document.getElementById('modal-repo');
+const modalBrowse   = document.getElementById('modal-browse');
+const modalCancel   = document.getElementById('modal-cancel');
+const modalCreate   = document.getElementById('modal-create');
+const workdirHint   = document.getElementById('workdir-hint');
+
+const accountAvatar  = document.getElementById('account-avatar');
+const githubToken    = document.getElementById('github-token');
+
+// Unread tracking — persisted in localStorage per session.
+function getReadCount(id) { return parseInt(localStorage.getItem('cas-read-' + id) || '0', 10); }
+function setReadCount(id, n) { localStorage.setItem('cas-read-' + id, n); }
+function unreadCount(s) { return Math.max(0, (s.messageCount || 0) - getReadCount(s.id)); }
+
+// Per-user session membership — stored in localStorage.
+function getJoined() {
+  try { return new Set(JSON.parse(localStorage.getItem('cas-joined') || '[]')); }
+  catch { return new Set(); }
+}
+function saveJoined(set) { localStorage.setItem('cas-joined', JSON.stringify([...set])); }
+function joinSession(id) { const s = getJoined(); s.add(id); saveJoined(s); }
+function leaveSession(id) { const s = getJoined(); s.delete(id); saveJoined(s); }
+
+function updateAvatar() {
+  const name = senderName.value.trim();
+  accountAvatar.textContent = name ? name[0].toUpperCase() : '?';
+}
+
+// Restore saved name
+senderName.value = localStorage.getItem('cas-sender-name') || '';
+updateAvatar();
+senderName.addEventListener('input', () => {
+  localStorage.setItem('cas-sender-name', senderName.value);
+  updateAvatar();
+});
+
+githubToken.value = localStorage.getItem('cas-github-token') || '';
+githubToken.addEventListener('input', () => {
+  localStorage.setItem('cas-github-token', githubToken.value.trim());
+});
+
+// Auto-resize textarea
+messageInput.addEventListener('input', () => {
+  messageInput.style.height = 'auto';
+  messageInput.style.height = Math.min(messageInput.scrollHeight, 200) + 'px';
+});
+
+messageInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    newSessionBtn.click();
+  }
+});
+
+sendBtn.addEventListener('click', send);
+
+// Session management
+newSessionBtn.addEventListener('click', () => {
+  modalName.value = '';
+  modalRepo.value = '';
+  modalName.classList.remove('invalid');
+  workdirHint.classList.remove('visible');
+  loadFolders();
+  modalOverlay.classList.add('open');
+  modalName.focus();
+});
+
+modalName.addEventListener('input', () => {
+  modalName.classList.remove('invalid');
+  workdirHint.classList.remove('visible');
+});
+
+// Auto-fill session name from GitHub URL.
+modalRepo.addEventListener('input', () => {
+  const url = modalRepo.value.trim().replace(/\.git$/, '');
+  const parts = url.split('/');
+  const repoName = parts[parts.length - 1];
+  if (repoName && !modalName.value) {
+    modalName.value = repoName;
+    modalName.classList.remove('invalid');
+    workdirHint.classList.remove('visible');
+  }
+});
+
+modalCancel.addEventListener('click', () => modalOverlay.classList.remove('open'));
+modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove('open'); });
+
+modalName.addEventListener('keydown', (e) => { if (e.key === 'Enter') modalCreate.click(); });
+
+async function loadFolders() {
+  const res = await fetch('/api/folders');
+  const folders = await res.json();
+  const current = modalFolder.value;
+  modalFolder.innerHTML = '<option value=""></option>';
+  for (const f of (folders || [])) {
+    const opt = document.createElement('option');
+    opt.value = f;
+    opt.textContent = f;
+    if (f === current) opt.selected = true;
+    modalFolder.appendChild(opt);
+  }
+}
+
+modalBrowse.addEventListener('click', loadFolders);
+
+modalFolder.addEventListener('change', () => {
+  const folder = modalFolder.value;
+  if (folder) {
+    modalName.value = folder;
+    modalName.classList.remove('invalid');
+    workdirHint.classList.remove('visible');
+  } else {
+    modalName.value = '';
+  }
+});
+
+modalCreate.addEventListener('click', async () => {
+  const repoURL = modalRepo.value.trim();
+  const folderName = modalFolder.value.trim();
+  const name = modalName.value.trim() || (repoURL ? repoURL.split('/').pop().replace(/\.git$/, '') : '');
+
+  if (!name) {
+    modalName.classList.add('invalid');
+    workdirHint.classList.add('visible');
+    modalName.focus();
+    return;
+  }
+
+  // If a session already exists with this name or folder, just join it.
+  const existing = state.sessions.find(s =>
+    s.name.toLowerCase() === name.toLowerCase() ||
+    (folderName && s.workDir && s.workDir.split('/').pop() === folderName)
+  );
+  if (existing) {
+    modalOverlay.classList.remove('open');
+    loadSessions().then(() => selectSession(existing.id));
+    return;
+  }
+
+  modalOverlay.classList.remove('open');
+
+  const res = await fetch('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, folderName, repoURL, githubToken: localStorage.getItem('cas-github-token') || '' }),
+  });
+
+  if (!res.ok) { showError(await res.text()); return; }
+  const session = await res.json();
+  loadSessions().then(() => selectSession(session.id));
+});
+
+async function loadSessions() {
+  const res = await fetch('/api/sessions');
+  state.sessions = await res.json();
+  // First-time migration: auto-join all existing sessions so returning users
+  // don't see an empty sidebar after this change. Only runs once per browser.
+  if (!localStorage.getItem('cas-initialized') && state.sessions && state.sessions.length > 0) {
+    state.sessions.forEach(s => joinSession(s.id));
+    localStorage.setItem('cas-initialized', '1');
+  } else if (state.sessions && state.sessions.length > 0) {
+    localStorage.setItem('cas-initialized', '1');
+  }
+  renderSessionList();
+}
+
+function makeSessionItem(s, isDiscover) {
+  const el = document.createElement('div');
+  el.className = 'session-item' + (s.id === state.activeSessionID ? ' active' : '') + (isDiscover ? ' discover-item' : '');
+  el.dataset.id = s.id;
+  const dirLabel = s.workDir ? s.workDir.split('/').pop() : '';
+  if (isDiscover) {
+    el.innerHTML = `
+      <span class="hash" style="opacity:0.25;">•</span>
+      <span class="session-label">
+        <span class="session-name">${escHtml(s.name)}</span>
+        ${dirLabel ? `<span class="session-workdir" title="${escHtml(s.workDir)}">${escHtml(dirLabel)}</span>` : ''}
+      </span>
+      <span class="discover-join">Join</span>
+    `;
+    el.addEventListener('click', () => selectSession(s.id));
+  } else {
+    const unread = unreadCount(s);
+    el.innerHTML = `
+      <span class="hash">•</span>
+      <span class="session-label">
+        <span class="session-name">${escHtml(s.name)}</span>
+        ${dirLabel ? `<span class="session-workdir" title="${escHtml(s.workDir)}">${escHtml(dirLabel)}</span>` : ''}
+      </span>
+      ${unread > 0 ? `<span class="session-unread">${unread}</span>` : ''}
+      <button class="session-delete" title="Leave session">✕</button>
+    `;
+    el.addEventListener('click', () => selectSession(s.id));
+    el.querySelector('.session-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteSession(s.id);
+    });
+  }
+  return el;
+}
+
+function renderSessionList() {
+  sessionList.innerHTML = '';
+
+  const joined = getJoined();
+  const allSessions = state.sessions || [];
+
+  const joinedSessions = allSessions.filter(s => joined.has(s.id));
+  const discoverSessions = allSessions
+    .filter(s => !joined.has(s.id))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 5);
+
+  // Recents section
+  if (joinedSessions.length === 0) {
+    sessionList.innerHTML = '<div style="padding:12px 12px;color:var(--text-muted);font-size:13px;">No sessions yet</div>';
+  } else {
+    const sorted = [...joinedSessions].sort((a, b) => {
+      if ((b.messageCount || 0) !== (a.messageCount || 0)) return (b.messageCount || 0) - (a.messageCount || 0);
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+    const label = document.createElement('div');
+    label.className = 'recents-label';
+    label.textContent = 'Recents';
+    sessionList.appendChild(label);
+    for (const s of sorted) {
+      sessionList.appendChild(makeSessionItem(s, false));
+    }
+  }
+
+  // Discover section
+  if (discoverSessions.length > 0) {
+    const divider = document.createElement('div');
+    divider.className = 'recents-label';
+    divider.style.marginTop = '12px';
+    divider.textContent = 'Discover';
+    sessionList.appendChild(divider);
+    for (const s of discoverSessions) {
+      sessionList.appendChild(makeSessionItem(s, true));
+    }
+  }
+}
+
+function selectSession(id) {
+  if (state.activeSessionID === id) return;
+  state.activeSessionID = id;
+  joinSession(id);
+
+  // Close existing WS
+  if (state.ws) {
+    state.ws.close();
+    state.ws = null;
+  }
+
+  const session = state.sessions.find(s => s.id === id);
+  if (session) {
+    sessionTitle.textContent = '# ' + session.name;
+    sessionMeta.textContent = `${session.messageCount} messages`;
+    setReadCount(id, session.messageCount || 0);
+  }
+
+  state.streaming = false;
+  state.streamBuffer = '';
+  messages.innerHTML = '';
+
+  messageInput.disabled = false;
+  sendBtn.disabled = false;
+  messageInput.focus();
+
+  renderSessionList();
+  connectWS(id);
+}
+
+function connectWS(sessionID) {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const name = encodeURIComponent(senderName.value.trim() || 'Anonymous');
+  const ws = new WebSocket(`${proto}://${location.host}/api/sessions/${sessionID}/ws?name=${name}`);
+
+  ws.onopen = () => statusDot.classList.remove('streaming');
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    handleWS(msg);
+  };
+
+  ws.onclose = () => {
+    if (state.activeSessionID === sessionID) {
+      setTimeout(() => connectWS(sessionID), 2000);
+    }
+  };
+
+  state.ws = ws;
+}
+
+function handleWS(msg) {
+  switch (msg.type) {
+    case 'history':
+      messages.innerHTML = '';
+      for (const m of (msg.history || [])) appendMessage(m);
+      scrollToBottom();
+      break;
+
+    case 'user_message':
+      appendMessage(msg.message);
+      scrollToBottom();
+      break;
+
+    case 'stream_start':
+      state.streaming = true;
+      state.streamingMsgID = msg.messageId;
+      state.streamBuffer = '';
+      statusDot.classList.add('streaming');
+      sendBtn.disabled = true;
+      appendStreamingMessage(msg.messageId);
+      scrollToBottom();
+      break;
+
+    case 'stream_chunk':
+      state.streamBuffer += msg.delta;
+      updateStreamingMessage(msg.messageId, state.streamBuffer);
+      scrollToBottom();
+      break;
+
+    case 'stream_end':
+      state.streaming = false;
+      state.streamingMsgID = null;
+      statusDot.classList.remove('streaming');
+      sendBtn.disabled = false;
+      finalizeStreamingMessage(msg.messageId, state.streamBuffer);
+      state.streamBuffer = '';
+      scrollToBottom();
+      break;
+
+    case 'session_list':
+      state.sessions = msg.sessions || [];
+      renderSessionList();
+      const active = state.sessions.find(s => s.id === state.activeSessionID);
+      if (active) {
+        sessionMeta.textContent = `${active.messageCount} messages`;
+        // Auto-mark active session as read when count updates.
+        setReadCount(active.id, active.messageCount || 0);
+        renderSessionList();
+      } else if (state.activeSessionID) {
+        // Active session was deleted server-side — clear the UI.
+        if (state.ws) { state.ws.close(); state.ws = null; }
+        state.activeSessionID = null;
+        messages.innerHTML = '<div id="empty-state"><h2>Session ended</h2><p>This session was removed. Select another from the sidebar.</p></div>';
+        sessionTitle.textContent = 'Select a session';
+        sessionMeta.textContent = '';
+        messageInput.disabled = true;
+        sendBtn.disabled = true;
+      }
+      break;
+
+    case 'system':
+      appendSystemNotice(msg.text);
+      scrollToBottom();
+      break;
+
+    case 'work_dir_changed':
+      appendSystemNotice(`📁 Working directory changed to ${msg.delta}`);
+      scrollToBottom();
+      break;
+
+    case 'tool_call':
+      appendToolCall(msg.toolName, msg.toolInput);
+      scrollToBottom();
+      break;
+
+    case 'tool_result':
+      appendToolResult(msg.toolName, msg.toolOutput, msg.isError);
+      scrollToBottom();
+      break;
+
+    case 'error':
+      showError(msg.error);
+      state.streaming = false;
+      statusDot.classList.remove('streaming');
+      sendBtn.disabled = false;
+      break;
+  }
+}
+
+function appendMessage(msg) {
+  const isUser = msg.role === 'user';
+  const group = document.createElement('div');
+  group.className = 'msg-group';
+  group.id = 'msg-' + msg.id;
+
+  const sender = isUser ? (msg.sender || 'User') : state.agentName;
+  const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const isCallout = isUser && msg.content.trimStart().startsWith('@');
+  const contentHtml = isCallout
+    ? escHtml(msg.content).replace(/\n/g, '<br>').replace(/@(\w+)/g, '<span class="mention">@$1</span>')
+    : isUser ? escHtml(msg.content).replace(/\n/g, '<br>') : marked.parse(msg.content);
+
+  group.innerHTML = `
+    <div class="msg-meta">
+      <span class="sender">${escHtml(sender)}</span>
+      <span>${time}</span>
+    </div>
+    <div class="msg-bubble${isCallout ? ' callout' : ''}">${contentHtml}</div>
+  `;
+
+  messages.appendChild(group);
+  group.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+}
+
+function appendStreamingMessage(id) {
+  const group = document.createElement('div');
+  group.className = 'msg-group';
+  group.id = 'msg-' + id;
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  group.innerHTML = `
+    <div class="msg-meta">
+      <span class="sender">${state.agentName}</span>
+      <span>${time}</span>
+    </div>
+    <div class="msg-bubble" id="bubble-${id}"><span class="streaming-cursor"></span></div>
+  `;
+  messages.appendChild(group);
+}
+
+function updateStreamingMessage(id, text) {
+  const bubble = document.getElementById('bubble-' + id);
+  if (!bubble) return;
+  bubble.innerHTML = marked.parse(text) + '<span class="streaming-cursor"></span>';
+}
+
+function finalizeStreamingMessage(id, text) {
+  const bubble = document.getElementById('bubble-' + id);
+  if (!bubble) return;
+  bubble.innerHTML = marked.parse(text);
+  bubble.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+}
+
+function showError(msg) {
+  const el = document.createElement('div');
+  el.style.cssText = 'color:#e53e3e;padding:8px 14px;background:rgba(229,62,62,0.1);border-radius:8px;font-size:13px;';
+  el.textContent = 'Error: ' + msg;
+  messages.appendChild(el);
+  scrollToBottom();
+}
+
+async function send() {
+  const content = messageInput.value.trim();
+  if (!content || !state.activeSessionID || state.streaming) return;
+
+  const sender = senderName.value.trim() || 'Anonymous';
+  messageInput.value = '';
+  messageInput.style.height = 'auto';
+
+  await fetch(`/api/sessions/${state.activeSessionID}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, sender }),
+  });
+}
+
+function toolIcon(name) {
+  const icons = { read_file: '📄', write_file: '✏️', list_files: '📁', bash: '⚡' };
+  return icons[name] || '🔧';
+}
+
+function toolSummary(name, input) {
+  try {
+    const p = JSON.parse(input);
+    if (name === 'bash') return p.command || '';
+    if (name === 'read_file' || name === 'list_files') return p.path || '';
+    if (name === 'write_file') return p.path || '';
+  } catch {}
+  return '';
+}
+
+function makeToolBlock(name, body, isError) {
+  const block = document.createElement('div');
+  block.className = 'tool-block' + (isError ? ' error' : '');
+
+  const header = document.createElement('div');
+  header.className = 'tool-header';
+  header.innerHTML = `
+    <span class="tool-icon">${toolIcon(name)}</span>
+    <span class="tool-name">${escHtml(name)}</span>
+    <span class="tool-summary">${escHtml(toolSummary(name, body) || '')}</span>
+    <span class="tool-chevron">▶</span>
+  `;
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'tool-body';
+  bodyEl.textContent = body;
+
+  header.addEventListener('click', () => {
+    const open = bodyEl.classList.toggle('visible');
+    header.classList.toggle('open', open);
+  });
+
+  block.appendChild(header);
+  block.appendChild(bodyEl);
+  return block;
+}
+
+// Pending tool call blocks waiting for their result (keyed by tool name).
+const pendingToolBlocks = {};
+
+function appendToolCall(name, input) {
+  const block = makeToolBlock(name, input, false);
+  block.dataset.pending = 'true';
+  pendingToolBlocks[name] = block;
+  messages.appendChild(block);
+}
+
+function appendToolResult(name, output, isError) {
+  const pending = pendingToolBlocks[name];
+  if (pending) {
+    // Upgrade the pending call block with the result inline.
+    const bodyEl = pending.querySelector('.tool-body');
+    const summary = pending.querySelector('.tool-summary').textContent;
+    bodyEl.textContent = '$ ' + summary + '\n\n' + output;
+    if (isError) pending.classList.add('error');
+    delete pendingToolBlocks[name];
+  } else {
+    const block = makeToolBlock(name, output, isError);
+    messages.appendChild(block);
+  }
+}
+
+function appendSystemNotice(text) {
+  const el = document.createElement('div');
+  el.className = 'system-notice';
+  el.textContent = text;
+  messages.appendChild(el);
+}
+
+function scrollToBottom() {
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function deleteSession(id) {
+  // Leave = remove from this user's sidebar and close WS if active.
+  // Session remains on the server for everyone else.
+  leaveSession(id);
+  renderSessionList();
+
+  if (state.activeSessionID === id) {
+    if (state.ws) { state.ws.close(); state.ws = null; }
+    state.activeSessionID = null;
+    messages.innerHTML = '<div id="empty-state"><h2>No session selected</h2><p>Select a session from the sidebar to rejoin.</p></div>';
+    sessionTitle.textContent = 'Select a session';
+    sessionMeta.textContent = '';
+    messageInput.disabled = true;
+    sendBtn.disabled = true;
+  }
+}
+
+// Init
+fetch('/api/config').then(r => r.json()).then(cfg => { state.agentName = cfg.model || 'Agent'; });
+loadSessions();
+setInterval(loadSessions, 5000);
+</script>
+</body>
+</html>

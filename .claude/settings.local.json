@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"ModelClaudeSonnet4_6\\\\|claude-sonnet-4-6\" /Users/london.summers/go/pkg/mod/github.com/anthropics/anthropic-sdk-go*/model.go 2>/dev/null | head -5)",
+      "Bash(ls ~/.claude/commands/ 2>/dev/null || echo \"no commands dir\")",
+      "Bash(mkdir -p /Users/london.summers/Documents/cas-go/.claude/commands)",
+      "Bash(mkdir -p ~/.claude/commands)",
+      "Bash(cp /Users/london.summers/Documents/cas-go/.claude/commands/cas.md ~/.claude/commands/cas.md)",
+      "Bash(go build *)",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ]
+  }
+}

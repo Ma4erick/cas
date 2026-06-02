@@ -1,0 +1,13 @@
+# Binary
+cas
+cas-go
+
+# macOS
+.DS_Store
+
+# Environment / secrets
+.env
+*.env
+
+# Session data (lives in ~/cas-projects)
+sessions/
