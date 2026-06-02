@@ -8,7 +8,18 @@
       "Bash(cp /Users/london.summers/Documents/cas-go/.claude/commands/cas.md ~/.claude/commands/cas.md)",
       "Bash(go build *)",
       "Bash(git init *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git branch *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(pip3 install *)",
+      "Bash(cp /Users/london.summers/Documents/cas-go/.claude/commands/cas-pull.md ~/.claude/commands/cas-pull.md)",
+      "Bash(xargs ls -lt)",
+      "Bash(find /tmp /var/folders ~/Downloads -name \"*.png\" -newer /Users/london.summers/Documents/cas-go/static/avatar.svg 2>/dev/null | head -5)",
+      "Bash(xargs ls -t)",
+      "Bash(ls ~/Desktop/avatar.png)",
+      "Bash(python3)"
     ]
   }
 }

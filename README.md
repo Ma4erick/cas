@@ -1,57 +1,107 @@
 # CAS — Collaborative Agent Sessions
 
-A real-time collaborative coding assistant built in Go. Multiple teammates share a browser-based chat session backed by Claude, with the ability to read and edit files, run commands, and commit code — all on a shared server.
+> **The browser becomes the coding agent.**
+
+CAS turns a web browser into a shared interface for a remote AI coding agent. Instead of each developer running a local AI assistant in isolation, the entire team connects to a single server where Claude can read files, write code, run commands, and commit to git — while everyone watches and participates in real time.
+
+There is nothing to install on a user's machine. Any device with a browser can participate.
+
+---
+
+## How it works
+
+```
+┌─────────────────────────────────────────┐
+│           CAS Server                    │
+│                                         │
+│  Go binary · Git · ~/cas-projects/      │
+│                                         │
+│  Holds the code. Runs the tools.        │
+│  Streams everything to every browser.   │
+└────────────────┬────────────────────────┘
+                 │  WebSocket + HTTP
+       ┌─────────┼─────────┐
+       ▼         ▼         ▼
+   Browser    Browser    Browser
+   (Dev 1)   (Dev 2)   (Dev 3)
+                              ↑
+                        Any device.
+                        No install.
+```
+
+The **browser** is the terminal — where users send instructions, see responses, and watch the agent work.  
+The **server** is the execution environment — it holds the code, runs git, reads and writes files.  
+The **Anthropic API** is the intelligence — Claude processes requests and decides what tools to call.
+
+Each user authenticates with their own Anthropic API key, stored in their browser. The server never holds API keys. Rate limits and costs are per-user, not shared.
 
 ---
 
 ## Features
 
-- **Shared sessions** — Multiple users connect to the same session via WebSocket. Everyone sees messages, agent responses, and tool activity in real time
-- **Agentic coding** — The agent can read/write files, list directories, and run allowed shell commands (`go`, `git`) directly in the project
-- **Per-session working directories** — Each session can point at a different project folder or GitHub repo
-- **GitHub auto-clone** — Paste a GitHub URL when creating a session and CAS clones it automatically (or pulls if already cloned)
-- **Live tool visibility** — File edits and command output appear inline in the chat so all teammates can see what the agent is doing
-- **Persistent sessions** — Sessions and message history are saved to disk and restored on restart
+- **Shared sessions** — Multiple users in the same session via WebSocket. Everyone sees messages, agent responses, and tool activity in real time
+- **Agentic coding** — The agent reads and writes files, runs shell commands, and operates git directly on the server's project folders
+- **Per-user API keys** — Each user brings their own Anthropic key. No shared server key required
+- **Model selection** — Each user chooses their own model (Opus, Sonnet, Haiku) from their profile
+- **GitHub integration** — Paste a GitHub URL to clone a repo into a session. Private repos use the user's own GitHub token stored in their browser
+- **Per-session working directories** — Each session can point at a different project or repo on the server
+- **Live tool visibility** — File edits and command output appear as collapsible blocks in the chat, visible to all teammates
+- **File uploads** — Upload PDFs, images, and documents into the session. The agent reads and summarises them automatically
+- **Join / leave notices** — Teammates see who joins and leaves each session in real time
+- **Claude Code integration** — `/cas` and `/cas-pull` slash commands to push and pull context between a local Claude Code session and CAS
+
+---
+
+## Server Requirements
+
+The CAS server requires only:
+
+- **Go 1.23+** — to build the binary
+- **Git** — for cloning repos and agent git operations
+
+**Claude Code is not required on the server.** It is an optional integration for individual developers who want to use the `/cas` and `/cas-pull` slash commands in their local Claude Code sessions.
 
 ---
 
 ## Getting Started
 
-### Prerequisites
-
-- Go 1.23+
-- An [Anthropic API key](https://console.anthropic.com/)
-- Git (for repo cloning and agent git operations)
-
-### Install & Run
-
 ```bash
-git clone https://github.com/your-org/cas-go
-cd cas-go
-go run .
+git clone https://github.com/Ma4erick/cas
+cd cas
+go build -o cas .
+./cas
 ```
 
-The server starts at `http://localhost:8080`. Share the local network URL (printed on startup) with teammates.
+The server starts at `http://localhost:8080`. Share the local network URL (printed on startup) with teammates. Each user opens it in their browser — no install required on their end.
 
-### API Key
+---
 
-CAS looks for your Anthropic API key in this order:
+## User Setup (browser)
 
-1. `--key` flag: `go run . --key sk-ant-...`
-2. `ANTHROPIC_API_KEY` environment variable
-3. `~/.cas.env` file containing `ANTHROPIC_API_KEY=sk-ant-...`
+Each user configures their profile via the **⚙ icon** in the bottom-left of the sidebar:
+
+| Setting | Description |
+|---|---|
+| **Display name** | Shown alongside your messages |
+| **Model** | Choose Opus, Sonnet, or Haiku per user |
+| **Anthropic API Key** | `sk-ant-…` — stored in your browser only, never on the server |
+| **GitHub Token** | `ghp_…` — used for cloning private repos, stored in your browser only |
 
 ---
 
 ## Configuration
 
-| Environment Variable | Default | Description |
-|---|---|---|
-| `CAS_PROJECTS_DIR` | `~/cas-projects` | Central folder for all project working directories |
+Server behaviour is controlled via `~/.cas.env` or environment variables:
 
-```bash
-CAS_PROJECTS_DIR=/home/user/projects \
-go run .
+| Variable | Default | Description |
+|---|---|---|
+| `CAS_PROJECTS_DIR` | `~/cas-projects` | Root folder for all project working directories |
+| `CAS_MODEL` | `claude-sonnet-4-6` | Server fallback model (used when no user model is specified) |
+
+```
+# ~/.cas.env
+CAS_PROJECTS_DIR=/home/user/projects
+CAS_MODEL=claude-sonnet-4-6
 ```
 
 ---
@@ -60,15 +110,30 @@ go run .
 
 ### Creating a Session
 
-Click **+** in the sidebar. You can optionally provide:
+Press **⌘K** or click **✦ New Session**. Options:
 
-- **GitHub URL** — CAS clones the repo into `CAS_PROJECTS_DIR/<repo-name>` and sets it as the working directory. If the repo is already cloned, it does a `git pull` instead
-- **Local path** — Point the session at an existing folder on the server
-- **Neither** — Uses `CAS_WORK_DIR`
+- **GitHub URL** — CAS clones the repo into `CAS_PROJECTS_DIR/<repo-name>`. Uses the user's GitHub token for private repos
+- **Existing folder** — Browse and select a folder already in `CAS_PROJECTS_DIR`
+- **Session name only** — A new empty folder is created automatically
+
+### Session Data
+
+All CAS metadata lives in a hidden `.cas/` folder inside each project:
+
+```
+~/cas-projects/my-app/
+├── .cas/
+│   ├── session.json     ← session history
+│   └── uploads/         ← uploaded files
+├── main.go              ← clean source code
+└── .gitignore           ← .cas/ added automatically
+```
+
+The `.cas/` folder is automatically added to `.gitignore` on first write.
 
 ### Changing the Working Directory
 
-Send `/cd /path/to/project` in any session to switch its working directory. All teammates see a notice confirming the change.
+Send `/cd /path/to/project` in any session to switch its working directory.
 
 ---
 
@@ -81,36 +146,40 @@ The agent has access to the following tools within each session's working direct
 | `read_file` | Read any file in the project |
 | `write_file` | Create or overwrite files |
 | `list_files` | Browse the directory tree |
-| `bash` | Run allowed shell commands (see below) |
+| `bash` | Run allowed shell commands |
 
 ### Allowed Shell Commands
 
-For security, `bash` is restricted to:
-
 ```
-go run, go build, go test, go vet, go fmt
-git status, git diff, git add, git commit, git log, git push, git pull
+go run · go build · go test · go vet · go fmt
+git fetch · git checkout · git branch · git merge · git rebase
+git status · git diff · git add · git commit · git log · git push · git pull
+git stash · git remote · git show · git reset
 ```
 
 ---
 
-## Sharing Context from Claude Code
+## Claude Code Integration
 
-A `/cas` slash command is included for Claude Code users. It creates a new CAS session pre-populated with a structured summary of your current Claude Code conversation — useful for handing off work to teammates.
+Two slash commands bridge local Claude Code sessions with CAS:
 
-**Install globally:**
+| Command | Direction | Description |
+|---|---|---|
+| `/cas My session` | Claude Code → CAS | Export your local conversation as a structured handoff into a new CAS session |
+| `/cas-pull byg` | CAS → Claude Code | Pull a CAS session's context into your local Claude Code instance |
+
+**Install:**
 
 ```bash
 cp .claude/commands/cas.md ~/.claude/commands/cas.md
+cp .claude/commands/cas-pull.md ~/.claude/commands/cas-pull.md
 ```
 
-**Usage** (inside Claude Code):
+---
 
-```
-/cas My feature branch
-```
+## Admin
 
-This creates a session named "My feature branch" in the running CAS instance and posts a handoff summary as the first message.
+Click **⚙** in the sidebar header to open the admin panel. It shows all sessions with their git health (uncommitted changes, unpushed commits) and allows permanent deletion with a confirmation step.
 
 ---
 
@@ -120,36 +189,24 @@ This creates a session named "My feature branch" in the running CAS instance and
 browser (index.html)
     │  WebSocket + HTTP
     ▼
-main.go  ── HTTP routes, embedded static files
-hub.go   ── WebSocket hub, client registry, broadcast
-session.go ── Session management, Claude API streaming, tool execution
+main.go    ── HTTP routes, embedded static files, admin endpoints
+hub.go     ── WebSocket hub, client registry, broadcast (join/leave/tools/stream)
+session.go ── Session lifecycle, Claude API streaming, tool execution, git ops
 ```
 
-- **Static files are embedded** into the binary at build time (`//go:embed static`). Any frontend change requires a rebuild (`go run .`)
-- **WebSocket connections** are per-session. `BroadcastAll` sends session-list updates to every connected client across all sessions
-- **Tool results** are streamed back to all teammates as collapsible blocks in the chat, with the full output available on click
-- **Sessions** are persisted as JSON files in `CAS_DATA_DIR`
+- **Single binary** — static files are embedded at build time (`//go:embed static`). Rebuild with `go build` after any change
+- **Per-user Anthropic clients** — a fresh client is created per request using the user's own API key
+- **Per-user model selection** — model is chosen per user, sent with each message
+- **WebSocket per session** — `BroadcastAll` sends session-list updates to every connected client across all sessions
 
 ---
 
 ## Deployment
 
-CAS is a single self-contained binary. For a shared team environment:
-
 ```bash
-# Build
 go build -o cas .
 
-# Run with environment config
-CAS_WORK_DIR=/home/user/projects \
-ANTHROPIC_API_KEY=sk-ant-... \
-./cas --port 8080
+CAS_PROJECTS_DIR=/home/user/projects ./cas --port 8080
 ```
 
-Point a reverse proxy (nginx, Caddy) at port 8080 to expose it over HTTPS.
-
----
-
-## Model
-
-CAS uses `claude-sonnet-4-6` by default. The model name is displayed as the sender label in each session's chat.
+Point a reverse proxy (nginx, Caddy) at port 8080 to expose over HTTPS. HTTPS is strongly recommended since API keys transit between browser and server.

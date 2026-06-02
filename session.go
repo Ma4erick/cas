@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -37,9 +38,10 @@ type Session struct {
 	WorkDir   string    `json:"workDir"`
 	Messages  []Message `json:"messages"`
 	CreatedAt time.Time `json:"createdAt"`
-	mu        sync.RWMutex
-	streaming bool
-	cloning   bool
+	mu           sync.RWMutex
+	streaming    bool
+	cloning      bool
+	cancelStream context.CancelFunc
 }
 
 func (s *Session) AddMessage(msg Message) {
@@ -89,7 +91,6 @@ type SessionSummary struct {
 type SessionManager struct {
 	sessions    map[string]*Session
 	mu          sync.RWMutex
-	client      anthropic.Client
 	hub         *Hub
 	projectsDir string // central location for all project folders
 	model       anthropic.Model
@@ -98,9 +99,7 @@ type SessionManager struct {
 func (sm *SessionManager) Model() anthropic.Model { return sm.model }
 func (sm *SessionManager) ProjectsDir() string    { return sm.projectsDir }
 
-func NewSessionManager(apiKey string, hub *Hub) *SessionManager {
-	client := anthropic.NewClient(option.WithAPIKey(apiKey))
-
+func NewSessionManager(hub *Hub) *SessionManager {
 	projectsDir := os.Getenv("CAS_PROJECTS_DIR")
 	if projectsDir == "" {
 		home, _ := os.UserHomeDir()
@@ -116,10 +115,9 @@ func NewSessionManager(apiKey string, hub *Hub) *SessionManager {
 
 	sm := &SessionManager{
 		sessions:    make(map[string]*Session),
-		client:      client,
 		hub:         hub,
 		projectsDir: projectsDir,
-		model:       anthropic.ModelClaudeSonnet4_6,
+		model:       defaultModel(),
 	}
 	sm.loadFromDisk()
 
@@ -139,14 +137,19 @@ func NewSessionManager(apiKey string, hub *Hub) *SessionManager {
 // Disk persistence
 // ---------------------------------------------------------------------------
 
-func (sm *SessionManager) sessionPath(session *Session) string {
-	return filepath.Join(session.WorkDir, ".cas-session.json")
+// casDir returns the hidden .cas directory for a session's project.
+func casDir(workDir string) string {
+	return filepath.Join(workDir, ".cas")
 }
 
-// ensureGitIgnore adds .cas-session.json to the project's .gitignore if not already present.
-func ensureGitIgnore(dir string) {
-	gitignorePath := filepath.Join(dir, ".gitignore")
-	entry := ".cas-session.json"
+func (sm *SessionManager) sessionPath(session *Session) string {
+	return filepath.Join(casDir(session.WorkDir), "session.json")
+}
+
+// ensureGitIgnore adds .cas/ to the project's .gitignore if not already present.
+func ensureGitIgnore(workDir string) {
+	gitignorePath := filepath.Join(workDir, ".gitignore")
+	entry := ".cas/"
 
 	data, err := os.ReadFile(gitignorePath)
 	if err == nil {
@@ -155,18 +158,15 @@ func ensureGitIgnore(dir string) {
 				return // already present
 			}
 		}
-		// Append with a newline
 		f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_WRONLY, 0644)
 		if err == nil {
 			defer f.Close()
-			content := string(data)
-			if len(content) > 0 && !strings.HasSuffix(content, "\n") {
+			if content := string(data); len(content) > 0 && !strings.HasSuffix(content, "\n") {
 				f.WriteString("\n")
 			}
 			f.WriteString(entry + "\n")
 		}
 	} else {
-		// No .gitignore yet — create one
 		os.WriteFile(gitignorePath, []byte(entry+"\n"), 0644)
 	}
 }
@@ -184,7 +184,7 @@ func (sm *SessionManager) saveToDisk(session *Session) {
 		log.Printf("failed to create dir for session %s: %v", session.ID, err)
 		return
 	}
-	ensureGitIgnore(filepath.Dir(path))
+	ensureGitIgnore(session.WorkDir)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		log.Printf("failed to write session %s: %v", session.ID, err)
@@ -205,7 +205,7 @@ func (sm *SessionManager) loadFromDisk() {
 		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(sm.projectsDir, entry.Name(), ".cas-session.json")
+		path := filepath.Join(sm.projectsDir, entry.Name(), ".cas", "session.json")
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -517,10 +517,378 @@ func (sm *SessionManager) CreateSession(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+func (sm *SessionManager) DeleteMessage(w http.ResponseWriter, r *http.Request, sessionID, msgID string) {
+	session, ok := sm.GetSession(sessionID)
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		Sender string `json:"sender"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	session.mu.Lock()
+	found := false
+	var deletedContent, deletedWorkDir string
+	for i, m := range session.Messages {
+		if m.ID == msgID {
+			if req.Sender != "" && m.Sender != req.Sender {
+				session.mu.Unlock()
+				http.Error(w, "you can only delete your own messages", http.StatusForbidden)
+				return
+			}
+			deletedContent = m.Content
+			deletedWorkDir = session.WorkDir
+			session.Messages = append(session.Messages[:i], session.Messages[i+1:]...)
+			found = true
+			break
+		}
+	}
+	session.mu.Unlock()
+
+	if !found {
+		http.Error(w, "message not found", http.StatusNotFound)
+		return
+	}
+
+	// If the deleted message was an upload, remove the file from disk.
+	if uploadFile := extractUploadPath(deletedContent); uploadFile != "" && deletedWorkDir != "" {
+		fullPath := filepath.Join(casDir(deletedWorkDir), uploadFile)
+		if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("failed to remove upload file %s: %v", fullPath, err)
+		} else {
+			log.Printf("removed upload file: %s", fullPath)
+		}
+	}
+
+	sm.saveToDisk(session)
+	sm.hub.BroadcastToSession(sessionID, WSMessage{
+		Type:      "message_deleted",
+		MessageID: msgID,
+	})
+	sm.hub.BroadcastSessionList(sm.sessionList())
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GitStatus holds the git health of a session's working directory.
+type GitStatus struct {
+	IsRepo          bool   `json:"isRepo"`
+	Uncommitted     int    `json:"uncommitted"`
+	Unpushed        int    `json:"unpushed"`
+	Branch          string `json:"branch"`
+}
+
+type AdminSessionInfo struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	WorkDir      string    `json:"workDir"`
+	MessageCount int       `json:"messageCount"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Git          GitStatus `json:"git"`
+}
+
+func gitStatus(workDir string) GitStatus {
+	gs := GitStatus{}
+	if workDir == "" {
+		return gs
+	}
+
+	// Check if it's a git repo
+	out, err := exec.Command("git", "-C", workDir, "rev-parse", "--is-inside-work-tree").Output()
+	if err != nil || strings.TrimSpace(string(out)) != "true" {
+		return gs
+	}
+	gs.IsRepo = true
+
+	// Current branch
+	if b, err := exec.Command("git", "-C", workDir, "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
+		gs.Branch = strings.TrimSpace(string(b))
+	}
+
+	// Uncommitted changes
+	if u, err := exec.Command("git", "-C", workDir, "status", "--porcelain").Output(); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(u)), "\n") {
+			if strings.TrimSpace(line) != "" {
+				gs.Uncommitted++
+			}
+		}
+	}
+
+	// Unpushed commits (requires upstream to be set)
+	if p, err := exec.Command("git", "-C", workDir, "log", "@{u}..HEAD", "--oneline").Output(); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(p)), "\n") {
+			if strings.TrimSpace(line) != "" {
+				gs.Unpushed++
+			}
+		}
+	}
+
+	return gs
+}
+
+func (sm *SessionManager) AdminListSessions(w http.ResponseWriter, r *http.Request) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	var result []AdminSessionInfo
+	for _, s := range sm.sessions {
+		s.mu.RLock()
+		info := AdminSessionInfo{
+			ID:           s.ID,
+			Name:         s.Name,
+			WorkDir:      s.WorkDir,
+			MessageCount: len(s.Messages),
+			CreatedAt:    s.CreatedAt,
+			Git:          gitStatus(s.WorkDir),
+		}
+		s.mu.RUnlock()
+		result = append(result, info)
+	}
+
+	// Sort by creation date, oldest first
+	for i := 0; i < len(result)-1; i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[j].CreatedAt.Before(result[i].CreatedAt) {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+func (sm *SessionManager) AdminDeleteSession(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if r.URL.Query().Get("confirm") != "true" {
+		http.Error(w, "confirmation required: add ?confirm=true", http.StatusBadRequest)
+		return
+	}
+
+	sm.mu.Lock()
+	session, ok := sm.sessions[sessionID]
+	if ok {
+		delete(sm.sessions, sessionID)
+	}
+	sm.mu.Unlock()
+
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	workDir := session.WorkDir
+
+	// Remove the .cas directory (session data + uploads) but leave project files.
+	casPath := casDir(workDir)
+	if err := os.RemoveAll(casPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("failed to remove .cas dir for session %s: %v", sessionID, err)
+	}
+
+	// If the working directory is empty (no project files), remove it entirely.
+	entries, _ := os.ReadDir(workDir)
+	if len(entries) == 0 {
+		os.Remove(workDir)
+	}
+
+	sm.hub.BroadcastSessionList(sm.sessionList())
+	log.Printf("admin deleted session %s (%s)", sessionID, workDir)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (sm *SessionManager) CancelStream(w http.ResponseWriter, r *http.Request, sessionID string) {
+	session, ok := sm.GetSession(sessionID)
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	session.mu.Lock()
+	if session.cancelStream != nil {
+		session.cancelStream()
+		session.cancelStream = nil
+	}
+	session.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (sm *SessionManager) ListSessions(w http.ResponseWriter, r *http.Request) {
 	sm.pruneDeletedSessions()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(sm.sessionList())
+}
+
+const maxUploadSize = 10 << 20 // 10 MB
+
+var allowedUploadTypes = map[string]string{
+	".pdf":  "PDF",
+	".png":  "Image",
+	".jpg":  "Image",
+	".jpeg": "Image",
+	".gif":  "Image",
+	".webp": "Image",
+	".svg":  "Image",
+	".txt":  "Text",
+	".md":   "Markdown",
+	".csv":  "CSV",
+	".json": "JSON",
+	".doc":  "Word Document",
+	".docx": "Word Document",
+	".xls":  "Spreadsheet",
+	".xlsx": "Spreadsheet",
+	".pptx": "Presentation",
+}
+
+func (sm *SessionManager) UploadFile(w http.ResponseWriter, r *http.Request, sessionID string) {
+	session, ok := sm.GetSession(sessionID)
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize+1024)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		http.Error(w, "file too large — maximum size is 10 MB", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "missing file field", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	fileType, allowed := allowedUploadTypes[ext]
+	if !allowed {
+		http.Error(w, fmt.Sprintf("file type %q not allowed", ext), http.StatusBadRequest)
+		return
+	}
+
+	// Store in session .cas/uploads/
+	uploadDir := filepath.Join(casDir(session.WorkDir), "uploads")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		http.Error(w, "could not create uploads directory", http.StatusInternalServerError)
+		return
+	}
+
+	// Sanitise filename and avoid collisions
+	safeName := filepath.Base(header.Filename)
+	dest := filepath.Join(uploadDir, safeName)
+	if _, err := os.Stat(dest); err == nil {
+		// File already exists — prefix with timestamp
+		safeName = fmt.Sprintf("%d_%s", time.Now().Unix(), safeName)
+		dest = filepath.Join(uploadDir, safeName)
+	}
+
+	out, err := os.Create(dest)
+	if err != nil {
+		http.Error(w, "could not save file", http.StatusInternalServerError)
+		return
+	}
+	defer out.Close()
+	written, err := io.Copy(out, file)
+	if err != nil {
+		http.Error(w, "could not write file", http.StatusInternalServerError)
+		return
+	}
+
+	sender := r.FormValue("sender")
+	uploadAnthropicKey := r.FormValue("anthropicKey")
+	if sender == "" {
+		sender = "Anonymous"
+	}
+
+	// Broadcast as a user message so all teammates see it.
+	content := fmt.Sprintf("📎 **%s** uploaded **%s** (%s, %s)\n`.cas/uploads/%s`",
+		sender, header.Filename, fileType, formatBytes(written), safeName)
+	msg := Message{
+		ID:        uuid.New().String(),
+		Role:      "user",
+		Content:   content,
+		Sender:    sender,
+		Timestamp: time.Now(),
+	}
+	session.AddMessage(msg)
+	sm.hub.BroadcastToSession(sessionID, WSMessage{Type: "user_message", Message: &msg})
+	sm.saveToDisk(session)
+	sm.hub.BroadcastSessionList(sm.sessionList())
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"filename": safeName,
+		"path":     ".cas/uploads/" + safeName,
+		"type":     fileType,
+	})
+
+	// Auto-prompt the agent to read and summarise the file.
+	go func() {
+		prompt := fmt.Sprintf("[System]: %s uploaded a file: `.cas/uploads/%s` (%s, %s). Please read it and provide a brief summary so the team can ask questions about it.",
+			sender, safeName, fileType, formatBytes(written))
+		agentMsg := Message{
+			ID:        uuid.New().String(),
+			Role:      "user",
+			Content:   prompt,
+			Sender:    "system",
+			Timestamp: time.Now(),
+		}
+		session.AddMessage(agentMsg)
+		sm.saveToDisk(session)
+		sm.streamResponse(sessionID, session, uploadAnthropicKey, "")
+	}()
+}
+
+// ServeFile serves an uploaded file from the session's uploads directory.
+func (sm *SessionManager) ServeFile(w http.ResponseWriter, r *http.Request, sessionID, filename string) {
+	session, ok := sm.GetSession(sessionID)
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	// Prevent path traversal
+	clean := filepath.Base(filename)
+	path := filepath.Join(casDir(session.WorkDir), "uploads", clean)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	http.ServeFile(w, r, path)
+}
+
+// extractUploadPath parses the upload-relative path from an upload message.
+// e.g. "📎 **x** uploaded **y** (PDF, 1 MB)\n`.cas/uploads/foo.pdf`" → "uploads/foo.pdf"
+func extractUploadPath(content string) string {
+	const prefix = "📎 "
+	if !strings.HasPrefix(content, prefix) {
+		return ""
+	}
+	// Find the backtick-enclosed path
+	start := strings.Index(content, "`.cas/")
+	if start == -1 {
+		return ""
+	}
+	start += len("`")
+	end := strings.Index(content[start:], "`")
+	if end == -1 {
+		return ""
+	}
+	full := content[start : start+end] // e.g. ".cas/uploads/foo.pdf"
+	// Return the part after ".cas/" so it can be joined with casDir()
+	return strings.TrimPrefix(full, ".cas/")
+}
+
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
 func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, sessionID string) {
@@ -539,8 +907,10 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 	session.mu.Unlock()
 
 	var req struct {
-		Content string `json:"content"`
-		Sender  string `json:"sender"`
+		Content      string `json:"content"`
+		Sender       string `json:"sender"`
+		AnthropicKey string `json:"anthropicKey"`
+		Model        string `json:"model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Content) == "" {
 		http.Error(w, "content required", http.StatusBadRequest)
@@ -595,7 +965,7 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 
 	// Messages starting with @ are teammate callouts — skip the agent.
 	if !strings.HasPrefix(strings.TrimSpace(req.Content), "@") {
-		go sm.streamResponse(sessionID, session)
+		go sm.streamResponse(sessionID, session, strings.TrimSpace(req.AnthropicKey), strings.TrimSpace(req.Model))
 	}
 }
 
@@ -725,15 +1095,52 @@ func (sm *SessionManager) executeTool(name string, rawInput json.RawMessage, wor
 // Streaming response with tool use loop
 // ---------------------------------------------------------------------------
 
-func (sm *SessionManager) streamResponse(sessionID string, session *Session) {
+func defaultModel() anthropic.Model {
+	if m := os.Getenv("CAS_MODEL"); m != "" && allowedModels[m] {
+		log.Printf("CAS default model: %s", m)
+		return anthropic.Model(m)
+	}
+	return anthropic.ModelClaudeSonnet4_6
+}
+
+var allowedModels = map[string]bool{
+	"claude-opus-4-8":    true,
+	"claude-opus-4-6":    true,
+	"claude-sonnet-4-6":  true,
+	"claude-haiku-4-5":   true,
+}
+
+func (sm *SessionManager) streamResponse(sessionID string, session *Session, anthropicKey string, modelID string) {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	session.mu.Lock()
 	session.streaming = true
+	session.cancelStream = cancel
 	session.mu.Unlock()
+
 	defer func() {
+		cancel()
 		session.mu.Lock()
 		session.streaming = false
+		session.cancelStream = nil
 		session.mu.Unlock()
 	}()
+
+	// Require a user-provided Anthropic API key.
+	if anthropicKey == "" {
+		sm.hub.BroadcastToSession(sessionID, WSMessage{
+			Type:  "error",
+			Error: "No Anthropic API key set. Please enter your key (sk-ant-…) in the account area at the bottom of the sidebar.",
+		})
+		return
+	}
+	client := anthropic.NewClient(option.WithAPIKey(anthropicKey))
+
+	// Use the user's chosen model if valid, otherwise fall back to default.
+	model := sm.model
+	if modelID != "" && allowedModels[modelID] {
+		model = anthropic.Model(modelID)
+	}
 
 	// Snapshot the working directory at the start of this response.
 	session.mu.RLock()
@@ -754,8 +1161,8 @@ func (sm *SessionManager) streamResponse(sessionID string, session *Session) {
 			MessageID: msgID,
 		})
 
-		stream := sm.client.Messages.NewStreaming(context.Background(), anthropic.MessageNewParams{
-			Model:     sm.model,
+		stream := client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
+			Model:     model,
 			MaxTokens: 8096,
 			Tools:     casTools,
 			System: []anthropic.TextBlockParam{
@@ -823,6 +1230,19 @@ func (sm *SessionManager) streamResponse(sessionID string, session *Session) {
 		}
 
 		if err := stream.Err(); err != nil {
+			if ctx.Err() != nil {
+				// Cancelled by user — send stream_end cleanly and stop.
+				log.Printf("stream cancelled for session %s", sessionID)
+				sm.hub.BroadcastToSession(sessionID, WSMessage{
+					Type:      "stream_end",
+					MessageID: msgID,
+				})
+				sm.hub.BroadcastToSession(sessionID, WSMessage{
+					Type: "system",
+					Text: "Agent stopped",
+				})
+				return
+			}
 			log.Printf("stream error for session %s: %v", sessionID, err)
 			sm.hub.BroadcastToSession(sessionID, WSMessage{
 				Type:  "error",

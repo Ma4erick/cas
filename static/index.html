@@ -56,10 +56,13 @@
 
   #sidebar-brand {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
     padding: 0 4px;
   }
+  #sidebar-brand #brand-name { flex: none; }
+  #sidebar-brand #brand-tagline { display: none; }
 
   #brand-name {
     font-size: 17px;
@@ -121,7 +124,27 @@
     text-transform: uppercase;
     letter-spacing: 0.6px;
     color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
+
+  #sort-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 5px;
+    border-radius: 4px;
+    letter-spacing: 0.3px;
+    transition: color 0.15s, background 0.15s;
+    text-transform: none;
+    font-family: inherit;
+    white-space: nowrap;
+  }
+  #sort-btn:hover { color: var(--text); background: var(--sidebar-hover); }
 
   .session-item {
     padding: 6px 8px;
@@ -201,22 +224,20 @@
     align-items: center;
     gap: 10px;
     background: rgba(0,0,0,0.15);
+    cursor: default;
   }
 
   #account-avatar {
     width: 32px;
     height: 32px;
     border-radius: 50%;
-    background: var(--accent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    font-weight: 700;
-    color: #fff;
+    overflow: hidden;
     flex-shrink: 0;
-    text-transform: uppercase;
-    cursor: default;
+  }
+  #account-avatar img {
+    width: 100%;
+    height: 100%;
+    display: block;
   }
 
   #account-info { flex: 1; min-width: 0; }
@@ -239,38 +260,149 @@
     outline: none;
     font-family: inherit;
   }
-
   #sender-name:focus { color: #fff; }
 
-  #github-token-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 5px;
-    padding-top: 5px;
-    border-top: 1px solid var(--border);
-  }
-
-  #github-token-label {
-    font-size: 11px;
-    color: var(--text-muted);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  #github-token {
-    flex: 1;
-    min-width: 0;
+  #account-gear {
     background: none;
     border: none;
     color: var(--text-muted);
-    padding: 0;
-    font-size: 12px;
-    outline: none;
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    transition: color 0.15s, background 0.15s;
+    line-height: 1;
   }
-  #github-token:focus { color: var(--text); }
-  #github-token::placeholder { font-family: inherit; }
+  #account-gear:hover { color: var(--text); background: var(--sidebar-hover); }
+
+  /* User profile modal */
+  #profile-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.65);
+    display: none;
+    align-items: flex-end;
+    justify-content: flex-start;
+    z-index: 300;
+    padding: 0 0 72px 12px;
+  }
+  #profile-overlay.open { display: flex; }
+
+  #profile-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 300px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+
+  #profile-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  #profile-avatar-lg {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  #profile-avatar-lg img {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  #profile-name-wrap { flex: 1; min-width: 0; }
+  #profile-name-wrap label { font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 2px; }
+  #profile-name {
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 600;
+    outline: none;
+    font-family: inherit;
+  }
+  #profile-name:focus { color: #fff; }
+
+  .profile-field {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .profile-field label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .profile-field label .key-status {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .key-set   { background: rgba(35,165,89,0.15); color: #23a559; }
+  .key-unset { background: rgba(229,62,62,0.15);  color: #e53e3e; }
+
+  .profile-field select {
+    width: 100%;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+  }
+  .profile-field select:focus { border-color: var(--accent); }
+
+  .profile-field input[type="password"],
+  .profile-field input[type="text"] {
+    width: 100%;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    outline: none;
+  }
+  .profile-field input:focus { border-color: var(--accent); }
+
+  #profile-logout {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--danger);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 14px 16px;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: background 0.15s;
+  }
+  #profile-logout:hover { background: rgba(229,62,62,0.08); }
 
   /* Main area */
   #main {
@@ -318,7 +450,26 @@
     padding: 6px 0 2px;
   }
 
+  .msg-group { position: relative; }
   .msg-group:hover { background: rgba(255,255,255,0.02); border-radius: 4px; }
+
+  .msg-delete {
+    display: none;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 2px 6px;
+    cursor: pointer;
+    line-height: 1.4;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .msg-group:hover .msg-delete { display: block; }
+  .msg-delete:hover { color: var(--danger); border-color: var(--danger); }
 
   .msg-meta {
     font-size: 13px;
@@ -450,6 +601,53 @@
   .tool-block.error .tool-header { background: #2d1515; color: #fc8181; }
   .tool-block.error .tool-name { color: #fc8181; }
 
+  /* File attachments */
+  .file-attachment {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 4px;
+    display: inline-block;
+    max-width: 100%;
+    vertical-align: top;
+  }
+  .file-attachment-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface);
+    min-width: 240px;
+  }
+  .file-icon { font-size: 16px; flex-shrink: 0; }
+  .file-name { font-weight: 600; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-meta { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .file-download {
+    flex-shrink: 0;
+    text-decoration: none;
+    font-size: 14px;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+    color: var(--text);
+  }
+  .file-download:hover { opacity: 1; }
+  .file-preview { border-top: 1px solid var(--border); }
+  .file-preview img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    max-height: 60vh;
+    object-fit: contain;
+    background: #111;
+  }
+  .file-preview iframe {
+    display: block;
+    width: min(680px, 100%);
+    aspect-ratio: 8.5 / 11;
+    border: none;
+    background: #fff;
+  }
+
   /* System notices — join/leave/dir-change events */
   .system-notice {
     text-align: center;
@@ -527,6 +725,22 @@
   }
   #send-btn:hover { opacity: 0.85; }
   #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  #stop-btn {
+    display: none;
+    background: var(--danger);
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    padding: 4px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    align-self: flex-end;
+    transition: opacity 0.15s;
+    font-family: inherit;
+  }
+  #stop-btn:hover { opacity: 0.85; }
 
   .status-dot {
     width: 8px;
@@ -632,6 +846,224 @@
   .btn:hover { opacity: 0.85; }
   .btn-primary { background: var(--accent); color: #fff; }
   .btn-ghost { background: var(--input-bg); color: var(--text); }
+
+  /* Admin gear button */
+  #admin-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    margin-left: auto;
+    transition: color 0.15s;
+    line-height: 1;
+  }
+  #admin-btn:hover { color: var(--text); }
+
+  /* Admin modal */
+  #admin-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+  }
+  #admin-overlay.open { display: flex; }
+
+  #admin-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: min(740px, 95vw);
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #admin-header {
+    display: flex;
+    align-items: center;
+    padding: 18px 20px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  #admin-header h2 { font-size: 16px; flex: 1; }
+  #admin-close {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+  }
+  #admin-close:hover { color: var(--text); }
+
+  #admin-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 10px 20px;
+    line-height: 1.5;
+    border-bottom: 1px solid var(--border);
+  }
+
+  #admin-table-wrap {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  #admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  #admin-table th {
+    text-align: left;
+    padding: 8px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+  }
+  #admin-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  #admin-table tr:last-child td { border-bottom: none; }
+  #admin-table tr:hover td { background: rgba(255,255,255,0.03); }
+
+  .git-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+  }
+  .git-badge {
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .git-clean    { background: rgba(35,165,89,0.15); color: #23a559; }
+  .git-warn     { background: rgba(245,158,11,0.15); color: #f59e0b; }
+  .git-danger   { background: rgba(229,62,62,0.15);  color: #e53e3e; }
+  .git-no-repo  { background: rgba(100,116,139,0.15); color: var(--text-muted); }
+
+  .admin-delete-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .admin-delete-btn:hover { border-color: var(--danger); color: var(--danger); }
+
+  #admin-confirm-wrap {
+    border-top: 1px solid var(--border);
+    padding: 16px 20px;
+  }
+  #admin-confirm-box { }
+  #admin-confirm-msg {
+    font-size: 13px;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  #admin-confirm-box label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  #admin-confirm-check { flex-shrink: 0; margin-top: 2px; }
+
+  /* Emoji picker */
+  #emoji-btn, #upload-btn {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 6px;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+    align-self: flex-end;
+    line-height: 1;
+    margin-bottom: 2px;
+    color: var(--text);
+  }
+  #emoji-btn:hover, #upload-btn:hover { opacity: 1; }
+
+  #emoji-picker {
+    display: none;
+    position: absolute;
+    bottom: 64px;
+    left: 24px;
+    width: 320px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 200;
+    overflow: hidden;
+  }
+  #emoji-picker.open { display: block; }
+
+  #emoji-search {
+    width: 100%;
+    background: var(--input-bg);
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: 13px;
+    outline: none;
+    font-family: inherit;
+  }
+  #emoji-search::placeholder { color: var(--text-muted); }
+
+  .emoji-category-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    padding: 6px 10px 2px;
+  }
+
+  .emoji-grid {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 2px 6px 6px;
+  }
+
+  .emoji-grid button {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 3px;
+    border-radius: 6px;
+    line-height: 1;
+    transition: background 0.1s;
+  }
+  .emoji-grid button:hover { background: var(--sidebar-hover); }
+
+  #emoji-scroll {
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  #emoji-scroll::-webkit-scrollbar { width: 4px; }
+  #emoji-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 </style>
 </head>
 <body>
@@ -641,6 +1073,7 @@
     <div id="sidebar-brand">
       <span id="brand-name">CAS</span>
       <span id="brand-tagline">Collaborative agent sessions</span>
+      <button id="admin-btn" title="Admin — manage sessions">⚙</button>
     </div>
     <button id="new-session-btn">
       <span id="new-session-icon">✦</span>
@@ -650,15 +1083,12 @@
   </div>
   <div id="session-list"></div>
   <div id="account-bar">
-    <div id="account-avatar">?</div>
+    <div id="account-avatar"><img src="/avatar.png" alt="avatar"></div>
     <div id="account-info">
       <label>Logged in as</label>
       <input id="sender-name" type="text" placeholder="Your name" maxlength="32">
-      <div id="github-token-row">
-        <span id="github-token-label">GitHub token</span>
-        <input id="github-token" type="password" placeholder="ghp_…" autocomplete="off" spellcheck="false">
-      </div>
     </div>
+    <button id="account-gear" title="Profile settings">⚙</button>
   </div>
 </div>
 
@@ -676,10 +1106,83 @@
     </div>
   </div>
 
-  <div id="input-area">
+  <div id="input-area" style="position:relative;">
+    <div id="emoji-picker">
+      <input id="emoji-search" type="text" placeholder="Search emojis…">
+      <div id="emoji-scroll"></div>
+    </div>
+    <input type="file" id="file-input" style="display:none"
+      accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.svg,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.pptx">
     <div id="input-wrap">
+      <button id="upload-btn" title="Upload file (max 10 MB)">+</button>
+      <button id="emoji-btn" title="Emoji">😊</button>
       <textarea id="message-input" rows="1" placeholder="Message the agent…" disabled></textarea>
+      <button id="stop-btn">■ Stop</button>
       <button id="send-btn" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
+<div id="profile-overlay">
+  <div id="profile-modal">
+    <div id="profile-header">
+      <div id="profile-avatar-lg"><img src="/avatar.png" alt="avatar"></div>
+      <div id="profile-name-wrap">
+        <label>Display name</label>
+        <input id="profile-name" type="text" placeholder="Your name" maxlength="32">
+      </div>
+    </div>
+    <div class="profile-field">
+      <label>Model</label>
+      <select id="profile-model">
+        <option value="claude-sonnet-4-6">Claude Sonnet (claude-sonnet-4-6) — Recommended</option>
+        <option value="claude-opus-4-8">Claude Opus 4 (claude-opus-4-8) — Most capable</option>
+        <option value="claude-opus-4-6">Claude Opus 4 (claude-opus-4-6)</option>
+        <option value="claude-haiku-4-5">Claude Haiku (claude-haiku-4-5) — Fastest</option>
+      </select>
+    </div>
+    <div class="profile-field">
+      <label>Anthropic API Key <span class="key-status key-unset" id="anthropic-status">Not set</span></label>
+      <input id="profile-anthropic" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="profile-field">
+      <label>GitHub Token <span class="key-status key-unset" id="github-status">Not set</span></label>
+      <input id="profile-github" type="password" placeholder="ghp_…" autocomplete="off" spellcheck="false">
+    </div>
+    <button id="profile-logout">↩ Sign out &amp; clear all settings</button>
+  </div>
+</div>
+
+<div id="admin-overlay">
+  <div id="admin-modal">
+    <div id="admin-header">
+      <h2>Session Management</h2>
+      <button id="admin-close">✕</button>
+    </div>
+    <p id="admin-desc">Delete sessions and their CAS data. Project source files are preserved unless the working directory is empty.<br>Ensure changes are pushed to Git before deleting.</p>
+    <div id="admin-table-wrap">
+      <table id="admin-table">
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>Working Directory</th>
+            <th>Messages</th>
+            <th>Git Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="admin-tbody"></tbody>
+      </table>
+    </div>
+    <div id="admin-confirm-wrap" style="display:none">
+      <div id="admin-confirm-box">
+        <p id="admin-confirm-msg"></p>
+        <label><input type="checkbox" id="admin-confirm-check"> I confirm changes have been pushed to Git and this session can be deleted</label>
+        <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+          <button class="btn btn-ghost" id="admin-confirm-cancel">Cancel</button>
+          <button class="btn" id="admin-confirm-ok" style="background:var(--danger);color:#fff;" disabled>Delete Session</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -735,6 +1238,7 @@ const messages      = document.getElementById('messages');
 const emptyState    = document.getElementById('empty-state');
 const messageInput  = document.getElementById('message-input');
 const sendBtn       = document.getElementById('send-btn');
+const stopBtn       = document.getElementById('stop-btn');
 const senderName    = document.getElementById('sender-name');
 const statusDot     = document.getElementById('status-dot');
 const newSessionBtn = document.getElementById('new-session-btn');
@@ -748,26 +1252,70 @@ const modalCreate   = document.getElementById('modal-create');
 const workdirHint   = document.getElementById('workdir-hint');
 
 const accountAvatar  = document.getElementById('account-avatar');
-const githubToken    = document.getElementById('github-token');
+const accountGear    = document.getElementById('account-gear');
+const profileOverlay = document.getElementById('profile-overlay');
+const profileAvatarLg = document.getElementById('profile-avatar-lg');
+const profileName    = document.getElementById('profile-name');
+const profileModel     = document.getElementById('profile-model');
+const profileAnthropic = document.getElementById('profile-anthropic');
+const profileGithub  = document.getElementById('profile-github');
+const anthropicStatus = document.getElementById('anthropic-status');
+const githubStatus   = document.getElementById('github-status');
+const profileLogout  = document.getElementById('profile-logout');
 
 // Unread tracking — persisted in localStorage per session.
 function getReadCount(id) { return parseInt(localStorage.getItem('cas-read-' + id) || '0', 10); }
 function setReadCount(id, n) { localStorage.setItem('cas-read-' + id, n); }
 function unreadCount(s) { return Math.max(0, (s.messageCount || 0) - getReadCount(s.id)); }
 
+// Sessions announced this page load (in-memory — resets on refresh).
+const announcedSessions = new Set();
+
+// Session sort preference
+const SORT_MODES = ['active', 'a-z', 'z-a'];
+const SORT_LABELS = { 'active': '↕ Active', 'a-z': 'A → Z', 'z-a': 'Z → A' };
+let sortMode = localStorage.getItem('cas-sort') || 'active';
+
+function nextSortMode() {
+  const idx = (SORT_MODES.indexOf(sortMode) + 1) % SORT_MODES.length;
+  sortMode = SORT_MODES[idx];
+  localStorage.setItem('cas-sort', sortMode);
+}
+
+function sortSessions(sessions) {
+  const copy = [...sessions];
+  if (sortMode === 'a-z') return copy.sort((a, b) => a.name.localeCompare(b.name));
+  if (sortMode === 'z-a') return copy.sort((a, b) => b.name.localeCompare(a.name));
+  // default: last active (most messages first, then newest)
+  return copy.sort((a, b) => {
+    if ((b.messageCount || 0) !== (a.messageCount || 0)) return (b.messageCount || 0) - (a.messageCount || 0);
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+}
+
 // Per-user session membership — stored in localStorage.
 function getJoined() {
   try { return new Set(JSON.parse(localStorage.getItem('cas-joined') || '[]')); }
   catch { return new Set(); }
 }
-function saveJoined(set) { localStorage.setItem('cas-joined', JSON.stringify([...set])); }
-function joinSession(id) { const s = getJoined(); s.add(id); saveJoined(s); }
-function leaveSession(id) { const s = getJoined(); s.delete(id); saveJoined(s); }
-
-function updateAvatar() {
-  const name = senderName.value.trim();
-  accountAvatar.textContent = name ? name[0].toUpperCase() : '?';
+function getLeft() {
+  try { return new Set(JSON.parse(localStorage.getItem('cas-left') || '[]')); }
+  catch { return new Set(); }
 }
+function saveJoined(set) { localStorage.setItem('cas-joined', JSON.stringify([...set])); }
+function saveLeft(set) { localStorage.setItem('cas-left', JSON.stringify([...set])); }
+function joinSession(id) {
+  const j = getJoined(); j.add(id); saveJoined(j);
+  // Remove from left if rejoining
+  const l = getLeft(); l.delete(id); saveLeft(l);
+}
+function leaveSession(id) {
+  const j = getJoined(); j.delete(id); saveJoined(j);
+  // Move to left/recent
+  const l = getLeft(); l.add(id); saveLeft(l);
+}
+
+function updateAvatar() { /* avatar is now a fixed org image */ }
 
 // Restore saved name
 senderName.value = localStorage.getItem('cas-sender-name') || '';
@@ -777,9 +1325,59 @@ senderName.addEventListener('input', () => {
   updateAvatar();
 });
 
-githubToken.value = localStorage.getItem('cas-github-token') || '';
-githubToken.addEventListener('input', () => {
-  localStorage.setItem('cas-github-token', githubToken.value.trim());
+// Profile modal
+function updateKeyStatus(el, value) {
+  el.textContent = value ? 'Set ✓' : 'Not set';
+  el.className = 'key-status ' + (value ? 'key-set' : 'key-unset');
+}
+
+function openProfile() {
+  profileName.value = localStorage.getItem('cas-sender-name') || '';
+  profileModel.value = localStorage.getItem('cas-model') || 'claude-sonnet-4-6';
+  profileAnthropic.value = localStorage.getItem('cas-anthropic-key') || '';
+  profileGithub.value = localStorage.getItem('cas-github-token') || '';
+  updateKeyStatus(anthropicStatus, profileAnthropic.value);
+  updateKeyStatus(githubStatus, profileGithub.value);
+  profileOverlay.classList.add('open');
+  profileName.focus();
+}
+
+function closeProfile() { profileOverlay.classList.remove('open'); }
+
+accountGear.addEventListener('click', openProfile);
+profileOverlay.addEventListener('click', e => { if (e.target === profileOverlay) closeProfile(); });
+
+profileName.addEventListener('input', () => {
+  const val = profileName.value.trim();
+  localStorage.setItem('cas-sender-name', profileName.value);
+  senderName.value = profileName.value;
+  updateAvatar();
+});
+
+profileModel.addEventListener('change', () => {
+  localStorage.setItem('cas-model', profileModel.value);
+});
+
+profileAnthropic.addEventListener('input', () => {
+  localStorage.setItem('cas-anthropic-key', profileAnthropic.value.trim());
+  updateKeyStatus(anthropicStatus, profileAnthropic.value.trim());
+});
+
+profileGithub.addEventListener('input', () => {
+  localStorage.setItem('cas-github-token', profileGithub.value.trim());
+  updateKeyStatus(githubStatus, profileGithub.value.trim());
+});
+
+profileLogout.addEventListener('click', () => {
+  if (!confirm('Sign out? This will clear your name, Anthropic key, GitHub token, and session memberships from this browser.')) return;
+  ['cas-sender-name','cas-anthropic-key','cas-github-token','cas-joined','cas-left',
+   'cas-initialized','cas-sort','cas-github-token'].forEach(k => localStorage.removeItem(k));
+  // Clear any cas-read-* keys
+  Object.keys(localStorage).filter(k => k.startsWith('cas-')).forEach(k => localStorage.removeItem(k));
+  closeProfile();
+  senderName.value = '';
+  updateAvatar();
+  renderSessionList();
 });
 
 // Auto-resize textarea
@@ -803,6 +1401,11 @@ document.addEventListener('keydown', (e) => {
 });
 
 sendBtn.addEventListener('click', send);
+
+stopBtn.addEventListener('click', async () => {
+  if (!state.activeSessionID) return;
+  await fetch(`/api/sessions/${state.activeSessionID}/cancel`, { method: 'POST' });
+});
 
 // Session management
 newSessionBtn.addEventListener('click', () => {
@@ -949,45 +1552,63 @@ function makeSessionItem(s, isDiscover) {
   return el;
 }
 
+function addSectionLabel(text, marginTop, withSort) {
+  const label = document.createElement('div');
+  label.className = 'recents-label';
+  if (marginTop) label.style.marginTop = '12px';
+  const span = document.createElement('span');
+  span.textContent = text;
+  label.appendChild(span);
+  if (withSort) {
+    const btn = document.createElement('button');
+    btn.id = 'sort-btn';
+    btn.textContent = SORT_LABELS[sortMode];
+    btn.title = 'Change sort order';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      nextSortMode();
+      renderSessionList();
+    });
+    label.appendChild(btn);
+  }
+  sessionList.appendChild(label);
+}
+
 function renderSessionList() {
   sessionList.innerHTML = '';
 
   const joined = getJoined();
+  const left   = getLeft();
   const allSessions = state.sessions || [];
 
-  const joinedSessions = allSessions.filter(s => joined.has(s.id));
+  const mySessions     = allSessions.filter(s => joined.has(s.id));
+  const recentSessions = allSessions
+    .filter(s => !joined.has(s.id) && left.has(s.id))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 5);
   const discoverSessions = allSessions
-    .filter(s => !joined.has(s.id))
+    .filter(s => !joined.has(s.id) && !left.has(s.id))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 5);
 
-  // Recents section
-  if (joinedSessions.length === 0) {
-    sessionList.innerHTML = '<div style="padding:12px 12px;color:var(--text-muted);font-size:13px;">No sessions yet</div>';
+  // My Sessions
+  if (mySessions.length === 0) {
+    sessionList.innerHTML = '<div style="padding:12px 12px;color:var(--text-muted);font-size:13px;">No active sessions</div>';
   } else {
-    const sorted = [...joinedSessions].sort((a, b) => {
-      if ((b.messageCount || 0) !== (a.messageCount || 0)) return (b.messageCount || 0) - (a.messageCount || 0);
-      return new Date(b.createdAt) - new Date(a.createdAt);
-    });
-    const label = document.createElement('div');
-    label.className = 'recents-label';
-    label.textContent = 'Recents';
-    sessionList.appendChild(label);
-    for (const s of sorted) {
-      sessionList.appendChild(makeSessionItem(s, false));
-    }
+    addSectionLabel('My Sessions', false, true);
+    for (const s of sortSessions(mySessions)) sessionList.appendChild(makeSessionItem(s, false));
   }
 
-  // Discover section
+  // Recent Sessions
+  if (recentSessions.length > 0) {
+    addSectionLabel('Recent Sessions', mySessions.length > 0, false);
+    for (const s of recentSessions) sessionList.appendChild(makeSessionItem(s, true));
+  }
+
+  // Discover
   if (discoverSessions.length > 0) {
-    const divider = document.createElement('div');
-    divider.className = 'recents-label';
-    divider.style.marginTop = '12px';
-    divider.textContent = 'Discover';
-    sessionList.appendChild(divider);
-    for (const s of discoverSessions) {
-      sessionList.appendChild(makeSessionItem(s, true));
-    }
+    addSectionLabel('Discover', recentSessions.length > 0 || mySessions.length > 0, false);
+    for (const s of discoverSessions) sessionList.appendChild(makeSessionItem(s, true));
   }
 }
 
@@ -1024,7 +1645,10 @@ function selectSession(id) {
 function connectWS(sessionID) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const name = encodeURIComponent(senderName.value.trim() || 'Anonymous');
-  const ws = new WebSocket(`${proto}://${location.host}/api/sessions/${sessionID}/ws?name=${name}`);
+  const isFirst = !announcedSessions.has(sessionID);
+  if (isFirst) announcedSessions.add(sessionID);
+  const announce = isFirst ? '&announce=1' : '';
+  const ws = new WebSocket(`${proto}://${location.host}/api/sessions/${sessionID}/ws?name=${name}${announce}`);
 
   ws.onopen = () => statusDot.classList.remove('streaming');
 
@@ -1060,7 +1684,8 @@ function handleWS(msg) {
       state.streamingMsgID = msg.messageId;
       state.streamBuffer = '';
       statusDot.classList.add('streaming');
-      sendBtn.disabled = true;
+      sendBtn.style.display = 'none';
+      stopBtn.style.display = 'block';
       appendStreamingMessage(msg.messageId);
       scrollToBottom();
       break;
@@ -1075,7 +1700,8 @@ function handleWS(msg) {
       state.streaming = false;
       state.streamingMsgID = null;
       statusDot.classList.remove('streaming');
-      sendBtn.disabled = false;
+      sendBtn.style.display = 'block';
+      stopBtn.style.display = 'none';
       finalizeStreamingMessage(msg.messageId, state.streamBuffer);
       state.streamBuffer = '';
       scrollToBottom();
@@ -1102,6 +1728,11 @@ function handleWS(msg) {
       }
       break;
 
+    case 'message_deleted':
+      const el = document.getElementById('msg-' + msg.messageId);
+      if (el) el.remove();
+      break;
+
     case 'system':
       appendSystemNotice(msg.text);
       scrollToBottom();
@@ -1126,9 +1757,38 @@ function handleWS(msg) {
       showError(msg.error);
       state.streaming = false;
       statusDot.classList.remove('streaming');
-      sendBtn.disabled = false;
+      sendBtn.style.display = 'block';
+      stopBtn.style.display = 'none';
       break;
   }
+}
+
+function filePreviewHtml(content, sessionID) {
+  // Match: 📎 **sender** uploaded **filename** (type, size)\n`uploads/safename`
+  const m = content.match(/📎 \*\*(.+?)\*\* uploaded \*\*(.+?)\*\* \((.+?), (.+?)\)\n`\.cas\/(uploads\/.+?)`/);
+  if (!m) return null;
+  const [, , origName, fileType, size, uploadPath] = m;
+  const url = `/api/sessions/${sessionID}/files/${uploadPath.replace('uploads/', '')}`;
+  const ext = origName.split('.').pop().toLowerCase();
+  const isImage = ['png','jpg','jpeg','gif','webp','svg'].includes(ext);
+  const isPDF   = ext === 'pdf';
+
+  let preview = '';
+  if (isImage) {
+    preview = `<div class="file-preview"><img src="${url}" alt="${escHtml(origName)}"></div>`;
+  } else if (isPDF) {
+    preview = `<div class="file-preview"><iframe src="${url}"></iframe></div>`;
+  }
+
+  return `<div class="file-attachment">
+    <div class="file-attachment-header">
+      <span class="file-icon">${isImage ? '🖼' : isPDF ? '📄' : '📎'}</span>
+      <span class="file-name">${escHtml(origName)}</span>
+      <span class="file-meta">${escHtml(fileType)} · ${escHtml(size)}</span>
+      <a href="${url}" download="${escHtml(origName)}" class="file-download" title="Download">⬇</a>
+    </div>
+    ${preview}
+  </div>`;
 }
 
 function appendMessage(msg) {
@@ -1140,9 +1800,20 @@ function appendMessage(msg) {
   const sender = isUser ? (msg.sender || 'User') : state.agentName;
   const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const isCallout = isUser && msg.content.trimStart().startsWith('@');
-  const contentHtml = isCallout
-    ? escHtml(msg.content).replace(/\n/g, '<br>').replace(/@(\w+)/g, '<span class="mention">@$1</span>')
-    : isUser ? escHtml(msg.content).replace(/\n/g, '<br>') : marked.parse(msg.content);
+
+  // Check if this is a file upload message
+  const isUpload = isUser && msg.content.startsWith('📎');
+  let contentHtml;
+  if (isUpload && state.activeSessionID) {
+    contentHtml = filePreviewHtml(msg.content, state.activeSessionID) || marked.parse(msg.content);
+  } else if (isCallout) {
+    contentHtml = escHtml(msg.content).replace(/\n/g, '<br>').replace(/@(\w+)/g, '<span class="mention">@$1</span>');
+  } else {
+    contentHtml = isUser ? escHtml(msg.content).replace(/\n/g, '<br>') : marked.parse(msg.content);
+  }
+
+  const isOwn = isUser && (msg.sender === (senderName.value.trim() || 'Anonymous'));
+  const deletable = isOwn && (isCallout || isUpload);
 
   group.innerHTML = `
     <div class="msg-meta">
@@ -1150,7 +1821,12 @@ function appendMessage(msg) {
       <span>${time}</span>
     </div>
     <div class="msg-bubble${isCallout ? ' callout' : ''}">${contentHtml}</div>
+    ${deletable ? `<button class="msg-delete" title="Delete message">✕ Delete</button>` : ''}
   `;
+
+  if (deletable) {
+    group.querySelector('.msg-delete').addEventListener('click', () => deleteMessage(msg.id, msg.sender));
+  }
 
   messages.appendChild(group);
   group.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
@@ -1196,6 +1872,13 @@ async function send() {
   const content = messageInput.value.trim();
   if (!content || !state.activeSessionID || state.streaming) return;
 
+  if (!localStorage.getItem('cas-anthropic-key')) {
+    showError('No Anthropic API key set. Click ⚙ next to your name to add it.');
+    openProfile();
+    profileAnthropic.focus();
+    return;
+  }
+
   const sender = senderName.value.trim() || 'Anonymous';
   messageInput.value = '';
   messageInput.style.height = 'auto';
@@ -1203,7 +1886,12 @@ async function send() {
   await fetch(`/api/sessions/${state.activeSessionID}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, sender }),
+    body: JSON.stringify({
+      content,
+      sender,
+      anthropicKey: localStorage.getItem('cas-anthropic-key') || '',
+      model: localStorage.getItem('cas-model') || 'claude-sonnet-4-6',
+    }),
   });
 }
 
@@ -1274,6 +1962,14 @@ function appendToolResult(name, output, isError) {
   }
 }
 
+async function deleteMessage(msgID, sender) {
+  await fetch(`/api/sessions/${state.activeSessionID}/messages/${msgID}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender }),
+  });
+}
+
 function appendSystemNotice(text) {
   const el = document.createElement('div');
   el.className = 'system-notice';
@@ -1297,9 +1993,17 @@ function deleteSession(id) {
   // Leave = remove from this user's sidebar and close WS if active.
   // Session remains on the server for everyone else.
   leaveSession(id);
+  announcedSessions.delete(id); // next join will announce again
   renderSessionList();
 
   if (state.activeSessionID === id) {
+    // Open a final WS with announce=1 so the backend fires the leave notice,
+    // then immediately close it.
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const name = encodeURIComponent(senderName.value.trim() || 'Anonymous');
+    const leaveWS = new WebSocket(`${proto}://${location.host}/api/sessions/${id}/ws?name=${name}&announce=1`);
+    leaveWS.onopen = () => leaveWS.close();
+
     if (state.ws) { state.ws.close(); state.ws = null; }
     state.activeSessionID = null;
     messages.innerHTML = '<div id="empty-state"><h2>No session selected</h2><p>Select a session from the sidebar to rejoin.</p></div>';
@@ -1308,6 +2012,244 @@ function deleteSession(id) {
     messageInput.disabled = true;
     sendBtn.disabled = true;
   }
+}
+
+// ── File Upload ─────────────────────────────────────────────────────────────
+const uploadBtn  = document.getElementById('upload-btn');
+const fileInput  = document.getElementById('file-input');
+
+const ALLOWED_EXTS = new Set(['.pdf','.png','.jpg','.jpeg','.gif','.webp','.svg',
+  '.txt','.md','.csv','.json','.doc','.docx','.xls','.xlsx','.pptx']);
+const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+
+uploadBtn.addEventListener('click', () => {
+  if (!state.activeSessionID) return;
+  fileInput.value = '';
+  fileInput.click();
+});
+
+fileInput.addEventListener('change', async () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (!ALLOWED_EXTS.has(ext)) {
+    showError(`File type "${ext}" is not allowed. Supported: PDF, images, Word, Excel, PowerPoint, text, CSV, JSON.`);
+    return;
+  }
+  if (file.size > MAX_SIZE) {
+    showError(`File is too large (${(file.size/1024/1024).toFixed(1)} MB). Maximum size is 10 MB.`);
+    return;
+  }
+
+  const sender = senderName.value.trim() || 'Anonymous';
+  const form = new FormData();
+  form.append('file', file);
+  form.append('sender', sender);
+  form.append('anthropicKey', localStorage.getItem('cas-anthropic-key') || '');
+
+  uploadBtn.textContent = '⏳';
+  uploadBtn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/sessions/${state.activeSessionID}/upload`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!res.ok) {
+      showError(await res.text());
+    }
+  } catch (e) {
+    showError('Upload failed: ' + e.message);
+  } finally {
+    uploadBtn.textContent = '+';
+    uploadBtn.disabled = false;
+  }
+});
+
+// ── Emoji Picker ────────────────────────────────────────────────────────────
+const emojiBtn    = document.getElementById('emoji-btn');
+const emojiPicker = document.getElementById('emoji-picker');
+const emojiSearch = document.getElementById('emoji-search');
+const emojiScroll = document.getElementById('emoji-scroll');
+
+const EMOJI_CATEGORIES = [
+  { label: 'Smileys', emojis: ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🥴','🤧','🥵','🥶','🥺','😢','😭','😤','😠','😡','🤬','😈','👿'] },
+  { label: 'Gestures', emojis: ['👋','🤚','🖐','✋','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','💪','🦾','🖕','💅','🤳'] },
+  { label: 'People', emojis: ['👶','🧒','👦','👧','🧑','👱','👨','🧔','👩','🧓','👴','👵','🙍','🙎','🙅','🙆','💁','🙋','🧏','🙇','🤦','🤷','💆','💇','🚶','🧍','🧎','🏃','💃','🕺','🧖','🧗','🤸','🏋️','🤼','🤺'] },
+  { label: 'Nature', emojis: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐦','🦆','🦅','🦉','🦇','🐝','🐛','🦋','🐌','🐞','🐜','🪲','🦟','🌸','🌺','🌻','🌹','🌷','🍀','🌿','🍃','🍂','🍁','🌲','🌳','🌴','🌵','🎋'] },
+  { label: 'Food', emojis: ['🍎','🍊','🍋','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🫒','🥑','🍆','🥦','🥬','🌽','🫑','🥕','🧄','🧅','🥔','🍠','🍕','🍔','🌮','🌯','🥗','🍜','🍝','🍛','🍣','🍱','🍩','🍪','🎂','🍰','🧁','🍫','🍬','🍭','☕','🧃','🥤','🍺','🥂','🍷'] },
+  { label: 'Travel', emojis: ['🚗','🚕','🚙','🚌','🏎','🚓','🚑','🚒','🚐','🛻','🚚','🚛','🚜','🛵','🏍','🚲','🛴','🛹','🚁','✈️','🛸','🚀','⛵','🚢','🚂','🌍','🌎','🌏','🗺','🧭','🏔','⛰','🌋','🏕','🏖','🏜','🏝','🏙','🌆','🌃','🌉','🌌','🌠','🎆','🎇'] },
+  { label: 'Objects', emojis: ['⌚','📱','💻','🖥','🖨','⌨️','🖱','🖲','💾','💿','📷','📸','📹','🎥','📽','🎞','📞','☎️','📟','📠','📺','📻','🧭','⏱','⏰','⏲','⌛','⏳','📡','🔋','🔌','💡','🔦','🕯','🪔','💰','💳','💎','🔑','🗝','🔒','🔓','🔨','🪛','🔧','🔩','⚙️','🪤','🧲','🔬','🔭','📚','📖','✏️','🖊','📝'] },
+  { label: 'Symbols', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☯️','🕊','✅','❌','⭕','🔴','🟠','🟡','🟢','🔵','🟣','⚫','⚪','🟤','🔺','🔻','💠','🔷','🔶','🔹','🔸','▪️','▫️','🔱','⚜️','🏁','🚩','🎌','🏳','🏴','🎊','🎉','🎈','✨','⭐','🌟','💫','⚡','🔥','🌈','☁️','⛅','🌀','❄️'] },
+  { label: 'Dev', emojis: ['💻','🖥','⌨️','🖱','💾','💿','📡','🔧','🔨','⚙️','🪛','🔩','🧰','🔬','📊','📈','📉','📋','📌','📍','🗂','📁','📂','🗃','🗄','📝','✏️','🖊','📎','🖇','📏','📐','✂️','🗑','🔐','🔑','🗝','🔒','🔓','🚀','🛸','🤖','👾','🕹','🎮','💡','🧩','🧪','🧫','🧬','⚗️'] },
+];
+
+function buildEmojiPicker(filter) {
+  emojiScroll.innerHTML = '';
+  const q = (filter || '').toLowerCase();
+  let hasResults = false;
+  for (const cat of EMOJI_CATEGORIES) {
+    const filtered = q ? cat.emojis.filter(e => cat.label.toLowerCase().includes(q) || e.includes(q)) : cat.emojis;
+    if (filtered.length === 0) continue;
+    hasResults = true;
+    const lbl = document.createElement('div');
+    lbl.className = 'emoji-category-label';
+    lbl.textContent = cat.label;
+    emojiScroll.appendChild(lbl);
+    const grid = document.createElement('div');
+    grid.className = 'emoji-grid';
+    for (const emoji of filtered) {
+      const btn = document.createElement('button');
+      btn.textContent = emoji;
+      btn.title = emoji;
+      btn.addEventListener('click', () => insertEmoji(emoji));
+      grid.appendChild(btn);
+    }
+    emojiScroll.appendChild(grid);
+  }
+  if (!hasResults) {
+    emojiScroll.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px;">No emojis found</div>';
+  }
+}
+
+function insertEmoji(emoji) {
+  const start = messageInput.selectionStart;
+  const end   = messageInput.selectionEnd;
+  const val   = messageInput.value;
+  messageInput.value = val.slice(0, start) + emoji + val.slice(end);
+  messageInput.selectionStart = messageInput.selectionEnd = start + emoji.length;
+  messageInput.focus();
+  messageInput.dispatchEvent(new Event('input'));
+}
+
+emojiBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const isOpen = emojiPicker.classList.toggle('open');
+  if (isOpen) {
+    emojiSearch.value = '';
+    buildEmojiPicker('');
+    emojiSearch.focus();
+  }
+});
+
+emojiSearch.addEventListener('input', () => buildEmojiPicker(emojiSearch.value));
+
+document.addEventListener('click', (e) => {
+  if (!emojiPicker.contains(e.target) && e.target !== emojiBtn) {
+    emojiPicker.classList.remove('open');
+  }
+});
+
+// ── Admin Panel ──────────────────────────────────────────────────────────────
+const adminBtn           = document.getElementById('admin-btn');
+const adminOverlay       = document.getElementById('admin-overlay');
+const adminClose         = document.getElementById('admin-close');
+const adminTbody         = document.getElementById('admin-tbody');
+const adminConfirmWrap   = document.getElementById('admin-confirm-wrap');
+const adminConfirmMsg    = document.getElementById('admin-confirm-msg');
+const adminConfirmCheck  = document.getElementById('admin-confirm-check');
+const adminConfirmCancel = document.getElementById('admin-confirm-cancel');
+const adminConfirmOk     = document.getElementById('admin-confirm-ok');
+
+let pendingDeleteID = null;
+
+adminBtn.addEventListener('click', openAdminPanel);
+adminClose.addEventListener('click', closeAdminPanel);
+adminOverlay.addEventListener('click', e => { if (e.target === adminOverlay) closeAdminPanel(); });
+
+adminConfirmCheck.addEventListener('change', () => {
+  adminConfirmOk.disabled = !adminConfirmCheck.checked;
+});
+
+adminConfirmCancel.addEventListener('click', () => {
+  pendingDeleteID = null;
+  adminConfirmWrap.style.display = 'none';
+  adminConfirmCheck.checked = false;
+  adminConfirmOk.disabled = true;
+});
+
+adminConfirmOk.addEventListener('click', async () => {
+  if (!pendingDeleteID || !adminConfirmCheck.checked) return;
+  const id = pendingDeleteID;
+  pendingDeleteID = null;
+  adminConfirmWrap.style.display = 'none';
+  adminConfirmCheck.checked = false;
+  adminConfirmOk.disabled = true;
+
+  const res = await fetch(`/api/admin/sessions/${id}?confirm=true`, { method: 'DELETE' });
+  if (!res.ok) {
+    showError(await res.text());
+  }
+  await loadAdminSessions();
+  await loadSessions();
+});
+
+function gitStatusBadge(git) {
+  if (!git.isRepo) return '<span class="git-badge git-no-repo">No git</span>';
+  const parts = [];
+  if (git.uncommitted > 0) parts.push(`<span class="git-badge git-danger">${git.uncommitted} uncommitted</span>`);
+  if (git.unpushed > 0)    parts.push(`<span class="git-badge git-warn">${git.unpushed} unpushed</span>`);
+  if (parts.length === 0)  parts.push('<span class="git-badge git-clean">✓ Clean</span>');
+  if (git.branch) parts.push(`<span style="color:var(--text-muted);font-size:11px;">on ${escHtml(git.branch)}</span>`);
+  return `<div class="git-status">${parts.join('')}</div>`;
+}
+
+async function loadAdminSessions() {
+  const res = await fetch('/api/admin/sessions');
+  const sessions = await res.json();
+  adminTbody.innerHTML = '';
+  if (!sessions || sessions.length === 0) {
+    adminTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:24px;">No sessions found</td></tr>';
+    return;
+  }
+  for (const s of sessions) {
+    const tr = document.createElement('tr');
+    const dirLabel = s.workDir ? s.workDir.replace(/^.*\/cas-projects\//, '') : '—';
+    const warnings = [];
+    if (s.git.uncommitted > 0) warnings.push(`${s.git.uncommitted} uncommitted change${s.git.uncommitted > 1 ? 's' : ''}`);
+    if (s.git.unpushed > 0)    warnings.push(`${s.git.unpushed} unpushed commit${s.git.unpushed > 1 ? 's' : ''}`);
+
+    tr.innerHTML = `
+      <td><strong>${escHtml(s.name)}</strong><br><span style="color:var(--text-muted);font-size:11px;">${s.messageCount} messages</span></td>
+      <td><code style="font-size:11px;color:var(--text-muted);">${escHtml(dirLabel)}</code></td>
+      <td style="text-align:center;">${s.messageCount}</td>
+      <td>${gitStatusBadge(s.git)}</td>
+      <td><button class="admin-delete-btn" data-id="${s.id}" data-name="${escHtml(s.name)}" data-warnings="${escHtml(warnings.join(', '))}">Delete</button></td>
+    `;
+    adminTbody.appendChild(tr);
+  }
+
+  adminTbody.querySelectorAll('.admin-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id       = btn.dataset.id;
+      const name     = btn.dataset.name;
+      const warnings = btn.dataset.warnings;
+
+      pendingDeleteID = id;
+      let msg = `You are about to permanently delete the session "<strong>${escHtml(name)}</strong>" and its CAS data (.cas/ folder).`;
+      if (warnings) {
+        msg += `<br><br>⚠️ <strong>Warning:</strong> This session has ${warnings}. Make sure these have been pushed to GitHub before deleting.`;
+      } else {
+        msg += `<br><br>✓ Git is clean — no uncommitted or unpushed changes detected.`;
+      }
+      adminConfirmMsg.innerHTML = msg;
+      adminConfirmCheck.checked = false;
+      adminConfirmOk.disabled = true;
+      adminConfirmWrap.style.display = 'block';
+    });
+  });
+}
+
+function openAdminPanel() {
+  adminOverlay.classList.add('open');
+  adminConfirmWrap.style.display = 'none';
+  loadAdminSessions();
+}
+
+function closeAdminPanel() {
+  adminOverlay.classList.remove('open');
+  pendingDeleteID = null;
 }
 
 // Init

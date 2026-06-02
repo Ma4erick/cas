@@ -34,6 +34,7 @@ type Client struct {
 	id        string
 	sessionID string
 	name      string
+	announce  bool // true only on first join / explicit leave
 	conn      *websocket.Conn
 	send      chan []byte
 	hub       *Hub
@@ -116,7 +117,7 @@ func (h *Hub) Run() {
 			}
 			h.sessions[client.sessionID][client] = true
 			h.mu.Unlock()
-			if client.name != "" {
+			if client.name != "" && client.announce {
 				h.BroadcastToSession(client.sessionID, WSMessage{
 					Type: "system",
 					Text: client.name + " joined",
@@ -135,7 +136,7 @@ func (h *Hub) Run() {
 				}
 			}
 			h.mu.Unlock()
-			if client.name != "" {
+			if client.name != "" && client.announce {
 				h.BroadcastToSession(client.sessionID, WSMessage{
 					Type: "system",
 					Text: client.name + " left",
@@ -206,6 +207,7 @@ func (h *Hub) ServeWS(sm *SessionManager, sessionID string, w http.ResponseWrite
 		id:        uuid.New().String(),
 		sessionID: sessionID,
 		name:      r.URL.Query().Get("name"),
+		announce:  r.URL.Query().Get("announce") == "1",
 		conn:      conn,
 		send:      make(chan []byte, 64),
 		hub:       h,

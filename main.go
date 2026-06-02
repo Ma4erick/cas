@@ -18,31 +18,18 @@ import (
 var staticFiles embed.FS
 
 func main() {
-	keyFlag := flag.String("key", "", "Anthropic API key (overrides ANTHROPIC_API_KEY env var)")
 	portFlag := flag.String("port", "8080", "Port to listen on")
 	flag.Parse()
 
-	// Load ~/.cas.env first so env vars are available before anything reads them.
+	// Load ~/.cas.env for non-Anthropic config (CAS_PROJECTS_DIR, GITHUB_TOKEN etc.)
 	if path := loadDotEnv(); path != "" {
 		log.Printf("loaded config from %s", path)
-	}
-
-	apiKey := *keyFlag
-	if apiKey == "" {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
-	if apiKey == "" {
-		log.Fatal("Anthropic API key not found.\n" +
-			"Set it via:\n" +
-			"  ANTHROPIC_API_KEY=sk-ant-... ./cas\n" +
-			"  ./cas -key sk-ant-...\n" +
-			"  Or add ANTHROPIC_API_KEY=sk-ant-... to ~/.cas.env")
 	}
 
 	hub := NewHub()
 	go hub.Run()
 
-	sm := NewSessionManager(apiKey, hub)
+	sm := NewSessionManager(hub)
 
 	mux := http.NewServeMux()
 
@@ -55,6 +42,26 @@ func main() {
 			"model":       string(sm.Model()),
 			"projectsDir": sm.ProjectsDir(),
 		})
+	})
+
+	mux.HandleFunc("/api/admin/sessions", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			sm.AdminListSessions(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/admin/sessions/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		sessionID := strings.TrimPrefix(r.URL.Path, "/api/admin/sessions/")
+		if r.Method == http.MethodDelete {
+			sm.AdminDeleteSession(w, r, sessionID)
+		} else {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	mux.HandleFunc("/api/folders", func(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +110,18 @@ func main() {
 			} else {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
+		case "cancel":
+			if r.Method == http.MethodPost {
+				sm.CancelStream(w, r, sessionID)
+			} else {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		case "upload":
+			if r.Method == http.MethodPost {
+				sm.UploadFile(w, r, sessionID)
+			} else {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
 		case "delete":
 			if r.Method == http.MethodDelete {
 				sm.DeleteSession(w, r, sessionID)
@@ -110,6 +129,19 @@ func main() {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
 		default:
+			if strings.HasPrefix(sub, "messages/") {
+				msgID := strings.TrimPrefix(sub, "messages/")
+				if r.Method == http.MethodDelete {
+					sm.DeleteMessage(w, r, sessionID, msgID)
+				} else {
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				}
+				return
+			}
+			if strings.HasPrefix(sub, "files/") {
+				sm.ServeFile(w, r, sessionID, strings.TrimPrefix(sub, "files/"))
+				return
+			}
 			http.NotFound(w, r)
 		}
 	})
