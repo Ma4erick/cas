@@ -80,10 +80,30 @@ func main() {
 
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"model":       string(sm.Model()),
-			"projectsDir": sm.ProjectsDir(),
+		oauth := oauthConfigured()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"model":           string(sm.Model()),
+			"projectsDir":     sm.ProjectsDir(),
+			"githubOAuth":     oauth["github"],
+			"atlassianOAuth":  oauth["atlassian"],
+			"showTokenFields": os.Getenv("SHOW_TOKEN_FIELDS") == "true",
 		})
+	})
+
+	// GitHub OAuth
+	mux.HandleFunc("/auth/github", func(w http.ResponseWriter, r *http.Request) {
+		HandleGitHubLogin(w, r)
+	})
+	mux.HandleFunc("/auth/github/callback", func(w http.ResponseWriter, r *http.Request) {
+		HandleGitHubCallback(w, r)
+	})
+
+	// Atlassian OAuth
+	mux.HandleFunc("/auth/atlassian", func(w http.ResponseWriter, r *http.Request) {
+		HandleAtlassianLogin(w, r)
+	})
+	mux.HandleFunc("/auth/atlassian/callback", func(w http.ResponseWriter, r *http.Request) {
+		HandleAtlassianCallback(w, r)
 	})
 
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {

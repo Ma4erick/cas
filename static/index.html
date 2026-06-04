@@ -972,6 +972,28 @@
   }
   .login-field input:focus { border-color: var(--accent); }
 
+  /* OAuth connect buttons */
+  .oauth-connect-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 14px;
+    text-decoration: none;
+    transition: background 0.15s, border-color 0.15s;
+    width: 100%;
+    justify-content: center;
+    box-sizing: border-box;
+    margin-bottom: 6px;
+  }
+  .oauth-connect-btn:hover { background: var(--sidebar-hover); border-color: rgba(255,255,255,0.2); }
+  .oauth-connect-btn.connected { border-color: #23a559; color: #23a559; }
+
   /* Admin gear button */
   #admin-btn {
     background: none;
@@ -1370,16 +1392,32 @@
       <label>Anthropic API Key <span class="key-status key-unset" id="anthropic-status">Not set</span></label>
       <input id="profile-anthropic" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
     </div>
-    <div class="profile-field">
-      <label>GitHub Token <span class="key-status key-unset" id="github-status">Not set</span></label>
-      <input id="profile-github" type="password" placeholder="ghp_…" autocomplete="off" spellcheck="false">
+    <div class="profile-field" id="github-field">
+      <label>GitHub <span class="key-status key-unset" id="github-status">Not set</span></label>
+      <div id="github-oauth-btn" style="display:none;">
+        <button class="oauth-connect-btn" id="github-connect" onclick="openOAuthPopup('/auth/github','github')">
+          <svg height="16" viewBox="0 0 16 16" width="16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Connect with GitHub
+        </button>
+        <p id="github-connected-as" style="display:none;font-size:12px;color:#23a559;margin-top:6px;"></p>
+      </div>
+      <input id="profile-github" type="password" placeholder="ghp_… (paste manually)" autocomplete="off" spellcheck="false" style="display:none;">
     </div>
-    <div class="profile-field" style="border-top:1px solid var(--border);padding-top:14px;">
-      <label>Atlassian API Token <span class="key-status key-unset" id="atlassian-status">Not set</span>
-        <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" style="color:var(--accent);font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px;">Generate ↗</a>
-      </label>
-      <input id="profile-atlassian-token" type="password" placeholder="Atlassian API token" autocomplete="off" spellcheck="false">
-      <p style="font-size:11px;color:var(--text-muted);margin-top:5px;">Generate a token at Atlassian, copy it immediately — it's only shown once.</p>
+    <div class="profile-field" id="atlassian-field" style="border-top:1px solid var(--border);padding-top:14px;">
+      <label>Atlassian <span class="key-status key-unset" id="atlassian-status">Not set</span></label>
+      <div id="atlassian-oauth-btn" style="display:none;">
+        <button class="oauth-connect-btn" id="atlassian-connect" onclick="openOAuthPopup('/auth/atlassian','atlassian')">
+          <svg height="16" viewBox="0 0 32 32" width="16" fill="currentColor"><path d="M15.277.033C8.565-.504 2.78 4.486 2.243 11.197a13.336 13.336 0 001.98 8.24L15.01 31.558a1.308 1.308 0 002.254 0l10.787-12.12a13.334 13.334 0 001.98-8.24C29.494 4.486 23.71-.504 15.277.033zm.72 18.614a5.334 5.334 0 110-10.668 5.334 5.334 0 010 10.668z"/></svg>
+          Connect with Atlassian
+        </button>
+        <p id="atlassian-connected-as" style="display:none;font-size:12px;color:#23a559;margin-top:6px;"></p>
+      </div>
+      <div class="token-paste-field" style="display:none;">
+        <input id="profile-atlassian-token" type="password" placeholder="API token (paste manually)" autocomplete="off" spellcheck="false">
+        <p style="font-size:11px;color:var(--text-muted);margin-top:5px;">
+          <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" style="color:var(--text-muted);">Generate API token manually ↗</a> — copy immediately, shown once only.
+        </p>
+      </div>
     </div>
     <div style="padding:12px 16px;border-top:1px solid var(--border);">
       <div id="profile-success" style="display:none;color:#23a559;font-size:13px;font-weight:600;margin-bottom:10px;text-align:center;">✓ Changes saved successfully</div>
@@ -1761,8 +1799,34 @@ function openProfile() {
       ? `Currently set (${serverProfile.atlassianTokenHint}) — enter new to change` : 'Atlassian API token';
     profileAtlassianEmail.value = serverProfile.atlassianEmail || '';
     updateKeyStatus(anthropicStatus, serverProfile.anthropicKeySet, serverProfile.anthropicKeyHint);
-    updateKeyStatus(githubStatus, serverProfile.githubTokenSet, serverProfile.githubTokenHint);
-    updateKeyStatus(atlassianStatus, serverProfile.atlassianTokenSet, serverProfile.atlassianTokenHint);
+
+    // GitHub — show connected state if OAuth login is stored, else key hint.
+    const ghBtn = document.getElementById('github-connect');
+    const ghMsg = document.getElementById('github-connected-as');
+    if (serverProfile.githubLogin) {
+      if (ghBtn) { ghBtn.textContent = '✓ Connected as @' + serverProfile.githubLogin; ghBtn.classList.add('connected'); }
+      if (ghMsg) { ghMsg.textContent = '✓ Connected as @' + serverProfile.githubLogin; ghMsg.style.display = 'block'; }
+      githubStatus.style.display = 'none';
+    } else {
+      if (ghBtn) { ghBtn.classList.remove('connected'); ghBtn.innerHTML = '<svg height="16" viewBox="0 0 16 16" width="16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> Connect with GitHub'; }
+      if (ghMsg) ghMsg.style.display = 'none';
+      githubStatus.style.display = '';
+      updateKeyStatus(githubStatus, serverProfile.githubTokenSet, serverProfile.githubTokenHint);
+    }
+
+    // Atlassian — show connected only when authenticated via OAuth (has refresh token).
+    const atlBtn = document.getElementById('atlassian-connect');
+    const atlMsg = document.getElementById('atlassian-connected-as');
+    if (serverProfile.atlassianOAuthConnected) {
+      if (atlBtn) { atlBtn.textContent = '✓ Connected as ' + serverProfile.atlassianEmail; atlBtn.classList.add('connected'); }
+      if (atlMsg) { atlMsg.textContent = '✓ Connected as ' + serverProfile.atlassianEmail; atlMsg.style.display = 'block'; }
+      atlassianStatus.style.display = 'none';
+    } else {
+      if (atlBtn) atlBtn.classList.remove('connected');
+      if (atlMsg) atlMsg.style.display = 'none';
+      atlassianStatus.style.display = '';
+      updateKeyStatus(atlassianStatus, serverProfile.atlassianTokenSet, serverProfile.atlassianTokenHint);
+    }
   } else {
     profileName.value = localStorage.getItem('cas-sender-name') || '';
     profileModel.value = localStorage.getItem('cas-model') || 'claude-sonnet-4-6';
@@ -2945,8 +3009,59 @@ function closeAdminPanel() {
   pendingDeleteID = null;
 }
 
+// ── OAuth setup ───────────────────────────────────────────────────────────────
+function openOAuthPopup(path, provider) {
+  const w = 520, h = 640;
+  const left = window.screenX + (window.outerWidth - w) / 2;
+  const top  = window.screenY + (window.outerHeight - h) / 2;
+  window.open(path, `oauth-${provider}`,
+    `width=${w},height=${h},left=${left},top=${top},toolbar=0,menubar=0,location=0`);
+}
+
+// Listen for postMessage from OAuth popup windows.
+window.addEventListener('message', async (event) => {
+  if (event.origin !== window.location.origin) return;
+  if (event.data?.type !== 'oauth-success') return;
+
+  const { provider, data } = event.data;
+  await loadProfile(); // refresh tokens from DB
+
+  if (provider === 'github') {
+    const login = data.login || 'GitHub account';
+    const btn = document.getElementById('github-connect');
+    const msg = document.getElementById('github-connected-as');
+    if (btn) { btn.textContent = '✓ Connected as @' + login; btn.classList.add('connected'); }
+    if (msg) { msg.textContent = '✓ Connected as @' + login; msg.style.display = 'block'; }
+    updateKeyStatus(document.getElementById('github-status'), true, '');
+  } else if (provider === 'atlassian') {
+    const email = data.email || 'Atlassian account';
+    const btn = document.getElementById('atlassian-connect');
+    const msg = document.getElementById('atlassian-connected-as');
+    if (btn) { btn.textContent = '✓ Connected as ' + email; btn.classList.add('connected'); }
+    if (msg) { msg.textContent = '✓ Connected as ' + email; msg.style.display = 'block'; }
+    updateKeyStatus(document.getElementById('atlassian-status'), true, '');
+  }
+});
+
+function setupOAuth(cfg) {
+  if (cfg.githubOAuth) {
+    document.getElementById('github-oauth-btn').style.display = 'block';
+  }
+  if (cfg.atlassianOAuth) {
+    document.getElementById('atlassian-oauth-btn').style.display = 'block';
+  }
+  // Show paste fields only when explicitly enabled in server config.
+  if (cfg.showTokenFields) {
+    document.getElementById('profile-github').style.display = 'block';
+    document.querySelectorAll('.token-paste-field').forEach(el => el.style.display = 'block');
+  }
+}
+
 // Init
-fetch('/api/config').then(r => r.json()).then(cfg => { state.agentName = cfg.model || 'Agent'; });
+fetch('/api/config').then(r => r.json()).then(cfg => {
+  state.agentName = cfg.model || 'Agent';
+  setupOAuth(cfg);
+});
 loadProfile().then(() => {
   const name = localStorage.getItem('cas-sender-name') || (serverProfile && serverProfile.name) || '';
   if (!name) {

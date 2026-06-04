@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -155,7 +157,9 @@ const alterations = `
 ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS github_login TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS atlassian_token TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS atlassian_refresh_token TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS atlassian_email TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS atlassian_domain TEXT NOT NULL DEFAULT '';
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_color TEXT NOT NULL DEFAULT '';
@@ -201,10 +205,12 @@ type UserProfile struct {
 	AnthropicKeyHint     string    `json:"anthropicKeyHint"`
 	GithubTokenSet       bool      `json:"githubTokenSet"`
 	GithubTokenHint      string    `json:"githubTokenHint"`
-	AtlassianTokenSet    bool      `json:"atlassianTokenSet"`
-	AtlassianTokenHint   string    `json:"atlassianTokenHint"`
-	AtlassianEmail       string    `json:"atlassianEmail"`
-	AtlassianDomain      string    `json:"atlassianDomain"`
+	GithubLogin          string    `json:"githubLogin"`
+	AtlassianTokenSet      bool      `json:"atlassianTokenSet"`
+	AtlassianTokenHint     string    `json:"atlassianTokenHint"`
+	AtlassianEmail         string    `json:"atlassianEmail"`
+	AtlassianDomain        string    `json:"atlassianDomain"`
+	AtlassianOAuthConnected bool     `json:"atlassianOAuthConnected"`
 	CreatedAt            time.Time `json:"createdAt"`
 	LastSeen             time.Time `json:"lastSeen"`
 }
@@ -224,14 +230,14 @@ func GetOrCreateUser(ctx context.Context, userID string) (*UserProfile, error) {
 // GetUser loads a user profile including masked key hints.
 func GetUser(ctx context.Context, userID string) (*UserProfile, error) {
 	row := DB.QueryRow(ctx, `
-		SELECT id, name, model, color, anthropic_key, github_token,
+		SELECT id, name, model, color, anthropic_key, github_token, github_login,
 		       atlassian_token, atlassian_email, atlassian_domain, created_at, last_seen
 		FROM users WHERE id = $1
 	`, userID)
 
 	var p UserProfile
 	var anthropicKey, githubToken, atlassianToken *string
-	err := row.Scan(&p.ID, &p.Name, &p.Model, &p.Color, &anthropicKey, &githubToken,
+	err := row.Scan(&p.ID, &p.Name, &p.Model, &p.Color, &anthropicKey, &githubToken, &p.GithubLogin,
 		&atlassianToken, &p.AtlassianEmail, &p.AtlassianDomain, &p.CreatedAt, &p.LastSeen)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -255,6 +261,12 @@ func GetUser(ctx context.Context, userID string) (*UserProfile, error) {
 		p.AtlassianTokenSet = plain != ""
 		p.AtlassianTokenHint = maskKey(plain)
 	}
+
+	// AtlassianOAuthConnected is true only when connected via OAuth (has refresh token).
+	var atlRefresh *string
+	DB.QueryRow(ctx, `SELECT atlassian_refresh_token FROM users WHERE id = $1`, userID).Scan(&atlRefresh)
+	p.AtlassianOAuthConnected = atlRefresh != nil && *atlRefresh != ""
+
 	return &p, nil
 }
 
@@ -321,6 +333,12 @@ func UserShellEnv(ctx context.Context, userID string) []string {
 	if atlEnc != nil {
 		if plain, err := Decrypt(*atlEnc); err == nil && plain != "" {
 			env = append(env, "ATLASSIAN_API_TOKEN="+plain)
+			// If this is an OAuth bearer token (refresh token present), also inject as bearer.
+			var refresh *string
+			DB.QueryRow(ctx, `SELECT atlassian_refresh_token FROM users WHERE id = $1`, userID).Scan(&refresh)
+			if refresh != nil && *refresh != "" {
+				env = append(env, "ATLASSIAN_BEARER_TOKEN="+plain)
+			}
 		}
 	}
 	if atlEmail != "" {
@@ -331,6 +349,72 @@ func UserShellEnv(ctx context.Context, userID string) []string {
 		env = append(env, "ATLASSIAN_DOMAIN="+domain)
 	}
 	return env
+}
+
+// StoreGitHubOAuthToken saves an OAuth token and login as the user's GitHub credentials.
+func StoreGitHubOAuthToken(ctx context.Context, userID, token, login string) error {
+	enc, err := Encrypt(token)
+	if err != nil {
+		return err
+	}
+	_, err = DB.Exec(ctx, `UPDATE users SET github_token = $1, github_login = $2 WHERE id = $3`, enc, login, userID)
+	return err
+}
+
+// StoreAtlassianOAuthTokens saves OAuth access + refresh tokens for a user.
+func StoreAtlassianOAuthTokens(ctx context.Context, userID, accessToken, refreshToken, email, domain string) error {
+	encAccess, err := Encrypt(accessToken)
+	if err != nil {
+		return err
+	}
+	encRefresh, err := Encrypt(refreshToken)
+	if err != nil {
+		return err
+	}
+	_, err = DB.Exec(ctx, `
+		UPDATE users SET atlassian_token = $1, atlassian_refresh_token = $2,
+		                 atlassian_email = $3, atlassian_domain = $4
+		WHERE id = $5
+	`, encAccess, encRefresh, email, domain, userID)
+	return err
+}
+
+// RefreshAtlassianToken exchanges a refresh token for a new access token.
+func RefreshAtlassianToken(ctx context.Context, userID string) (string, error) {
+	var encRefresh *string
+	if err := DB.QueryRow(ctx, `SELECT atlassian_refresh_token FROM users WHERE id = $1`, userID).Scan(&encRefresh); err != nil || encRefresh == nil {
+		return "", fmt.Errorf("no refresh token stored")
+	}
+	refreshToken, err := Decrypt(*encRefresh)
+	if err != nil || refreshToken == "" {
+		return "", fmt.Errorf("failed to decrypt refresh token")
+	}
+
+	// Exchange refresh token for new access token.
+	tokenURL := "https://auth.atlassian.com/oauth/token"
+	body := fmt.Sprintf(`{"grant_type":"refresh_token","client_id":"%s","client_secret":"%s","refresh_token":"%s"}`,
+		os.Getenv("ATLASSIAN_CLIENT_ID"), os.Getenv("ATLASSIAN_CLIENT_SECRET"), refreshToken)
+
+	resp, err := http.Post(tokenURL, "application/json", strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || result.AccessToken == "" {
+		return "", fmt.Errorf("failed to refresh token")
+	}
+
+	// Store the new tokens.
+	encNew, _ := Encrypt(result.AccessToken)
+	encNewRefresh, _ := Encrypt(result.RefreshToken)
+	DB.Exec(ctx, `UPDATE users SET atlassian_token = $1, atlassian_refresh_token = $2 WHERE id = $3`,
+		encNew, encNewRefresh, userID)
+
+	return result.AccessToken, nil
 }
 
 // GetUserColor returns the user's chosen display colour.

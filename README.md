@@ -43,8 +43,8 @@ Each user authenticates with their own username and password. API keys are store
 - **Agentic coding** — The agent reads and writes files, runs shell commands, and operates git directly on the server's project folders. Interrupt mid-stream with the Stop button
 - **Per-user Anthropic key and model** — Each user brings their own API key (stored server-side, encrypted). Choose Opus, Sonnet, or Haiku from the profile settings
 - **Per-user message colour** — Each user picks a display colour for their messages
-- **GitHub integration** — Paste a GitHub URL to clone a repo. Per-user GitHub token stored encrypted in the DB, injected as `GH_TOKEN` for all `gh` CLI commands
-- **Atlassian integration** — Per-user Atlassian API token stored encrypted in the DB, injected as `ATLASSIAN_API_TOKEN` for Jira/Confluence REST API calls. Domain configured server-wide via `ATLASSIAN_DOMAIN`
+- **GitHub integration** — Paste a GitHub URL to clone a repo. Connect via GitHub OAuth (one-click) or paste a PAT. Token stored encrypted in DB, injected as `GH_TOKEN` for all `gh` CLI commands
+- **Atlassian integration** — Connect via Atlassian OAuth or paste an API token. Stored encrypted in DB, injected as `ATLASSIAN_API_TOKEN` / `ATLASSIAN_BEARER_TOKEN` for Jira/Confluence REST API calls. Domain configured server-wide via `ATLASSIAN_DOMAIN`
 - **Koda marketplace support** — Sessions automatically inject `CLAUDE.md` and `SKILL.md` files from the project into the agent's system prompt, enabling OutSystems coding standards and Koda workflow commands (`koda init`, `koda plugin add`, etc.)
 - **Per-session working directories** — Each session points at a different project or repo on the server
 - **Live tool visibility** — File edits and command output appear as collapsible blocks in the chat, visible to all teammates
@@ -117,8 +117,8 @@ Each user configures their profile via the **⚙ icon** next to their name at th
 | **Colour** | Your message colour — visible to everyone in sessions |
 | **Model** | Choose Opus, Sonnet, or Haiku per user |
 | **Anthropic API Key** | `sk-ant-…` — encrypted and stored in PostgreSQL |
-| **GitHub Token** | `ghp_…` — encrypted and stored in PostgreSQL. Injected as `GH_TOKEN` for `gh` CLI commands |
-| **Atlassian API Token** | Generated at `id.atlassian.com/manage-profile/security/api-tokens`. Injected as `ATLASSIAN_API_TOKEN` for Jira/Confluence REST API calls |
+| **GitHub** | Click **Connect with GitHub** (OAuth) or paste a PAT. Encrypted in DB, injected as `GH_TOKEN` for `gh` CLI commands. Button shows **✓ Connected as @username** when authenticated |
+| **Atlassian** | Click **Connect with Atlassian** (OAuth 2.0) or paste an API token. Encrypted in DB, injected as `ATLASSIAN_API_TOKEN`. Note: enterprise orgs require an admin to approve the OAuth app before OAuth can be used |
 
 All settings persist across browsers and devices once saved.
 
@@ -136,6 +136,12 @@ Server behaviour is controlled via `~/.cas.env` or environment variables:
 | `CAS_PROJECTS_DIR` | `~/cas-projects` | Root folder for all project working directories |
 | `CAS_MODEL` | `claude-sonnet-4-6` | Server fallback model |
 | `ATLASSIAN_DOMAIN` | — | Org-wide Atlassian domain e.g. `yourcompany.atlassian.net` — injected for all users |
+| `CAS_BASE_URL` | `http://<host>` | Public base URL of CAS — used as the OAuth redirect URI. Required for Atlassian OAuth |
+| `GITHUB_CLIENT_ID` | — | GitHub OAuth App client ID — enables one-click Connect with GitHub in user profiles |
+| `GITHUB_CLIENT_SECRET` | — | GitHub OAuth App client secret |
+| `ATLASSIAN_CLIENT_ID` | — | Atlassian OAuth 2.0 (3LO) client ID — enables Connect with Atlassian in user profiles |
+| `ATLASSIAN_CLIENT_SECRET` | — | Atlassian OAuth 2.0 client secret |
+| `SHOW_TOKEN_FIELDS` | `false` | Set to `true` to show manual API token paste fields in the profile modal |
 
 ```
 # ~/.cas.env

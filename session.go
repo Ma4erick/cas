@@ -1416,8 +1416,10 @@ func buildSystemPrompt(workDir string, userEnv []string) []anthropic.TextBlockPa
 		switch {
 		case strings.HasPrefix(e, "GH_TOKEN="):
 			credHints += "\n- GitHub: $GH_TOKEN is set — use it with `gh` CLI or as an Authorization header."
+		case strings.HasPrefix(e, "ATLASSIAN_BEARER_TOKEN="):
+			credHints += "\n- Atlassian (OAuth): $ATLASSIAN_BEARER_TOKEN is set. Use Bearer auth:\n  curl -s -H \"Authorization: Bearer $ATLASSIAN_BEARER_TOKEN\" \"https://api.atlassian.com/ex/jira/<cloud-id>/rest/api/3/issue/TICKET\"\n  Or use $ATLASSIAN_DOMAIN if known: curl -s -H \"Authorization: Bearer $ATLASSIAN_BEARER_TOKEN\" \"https://$ATLASSIAN_DOMAIN/rest/api/3/issue/TICKET\""
 		case strings.HasPrefix(e, "ATLASSIAN_API_TOKEN="):
-			credHints += "\n- Atlassian: $ATLASSIAN_API_TOKEN, $ATLASSIAN_USER_EMAIL, and $ATLASSIAN_DOMAIN are set. Use basic auth for the Jira/Confluence REST API, e.g.:\n  curl -s -u \"$ATLASSIAN_USER_EMAIL:$ATLASSIAN_API_TOKEN\" \"https://$ATLASSIAN_DOMAIN/rest/api/3/issue/TICKET-123\"\n  Always use $ATLASSIAN_DOMAIN — never hardcode the domain."
+			credHints += "\n- Atlassian: $ATLASSIAN_API_TOKEN, $ATLASSIAN_USER_EMAIL, and $ATLASSIAN_DOMAIN are set. Use basic auth:\n  curl -s -u \"$ATLASSIAN_USER_EMAIL:$ATLASSIAN_API_TOKEN\" \"https://$ATLASSIAN_DOMAIN/rest/api/3/issue/TICKET-123\""
 		}
 	}
 
