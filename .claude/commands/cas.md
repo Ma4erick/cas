@@ -5,7 +5,7 @@ allowed-tools: Bash(curl *) Bash(grep *)
 argument-hint: "[session name]"
 ---
 
-Share the current conversation context with the team via CAS (Collaborative Agent Sessions).
+Share the current conversation context with the team via CAS (Collaborative Agentic Space).
 
 The CAS server runs at http://localhost:8080.
 

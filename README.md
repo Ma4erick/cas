@@ -1,8 +1,8 @@
-# CAS — Collaborative Agent Sessions
+# CAS — Collaborative Agentic Space
 
 > **The browser becomes the coding agent.**
 
-CAS turns a web browser into a shared interface for a remote AI coding agent. Instead of each developer running a local AI assistant in isolation, the entire team connects to a single server where Claude can read files, write code, run commands, and commit to git — while everyone watches and participates in real time.
+CAS (Collaborative Agentic Space) turns a web browser into a shared interface for a remote AI coding agent. Instead of each developer running a local AI assistant in isolation, the entire team connects to a single server where Claude can read files, write code, run commands, and commit to git — while everyone watches and participates in real time.
 
 There is nothing to install on a user's machine. Any device with a browser can participate.
 
