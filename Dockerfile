@@ -12,8 +12,11 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cas .
 
 # ── Final stage ───────────────────────────────────────────────────────────────
-# Use git image — includes git, sh and CA certs needed for CAS git operations
-FROM cgr.dev/chainguard/git:latest
+# wolfi-base provides apk, git, bash and standard utilities — minimal but usable
+FROM cgr.dev/chainguard/wolfi-base:latest
+
+# Install runtime dependencies CAS needs
+RUN apk add --no-cache git bash coreutils curl
 
 WORKDIR /app
 
