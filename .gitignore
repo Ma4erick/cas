@@ -12,3 +12,4 @@ cas-go
 # Session data (lives in ~/cas-projects)
 sessions/
 CAS-Architecture.pdf
+.claude/settings.local.json
