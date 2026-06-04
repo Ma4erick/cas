@@ -1,0 +1,8 @@
+.git
+.claude
+*.md
+*.pdf
+*.env
+cas
+cas-go
+sessions/
