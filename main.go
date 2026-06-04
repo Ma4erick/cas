@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -12,6 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 //go:embed static
@@ -21,9 +25,15 @@ func main() {
 	portFlag := flag.String("port", "8080", "Port to listen on")
 	flag.Parse()
 
-	// Load ~/.cas.env for non-Anthropic config (CAS_PROJECTS_DIR, GITHUB_TOKEN etc.)
+	// Load ~/.cas.env for config (CAS_PROJECTS_DIR, DATABASE_URL, CAS_SECRET etc.)
 	if path := loadDotEnv(); path != "" {
 		log.Printf("loaded config from %s", path)
+	}
+
+	// Connect to Postgres if DATABASE_URL is set.
+	ctx := context.Background()
+	if err := ConnectDB(ctx); err != nil {
+		log.Fatalf("database connection failed: %v", err)
 	}
 
 	hub := NewHub()
@@ -42,6 +52,71 @@ func main() {
 			"model":       string(sm.Model()),
 			"projectsDir": sm.ProjectsDir(),
 		})
+	})
+
+	mux.HandleFunc("/api/profile", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if DB == nil {
+			http.Error(w, `{"error":"database not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		userID := getUserID(w, r)
+		ctx := r.Context()
+
+		switch r.Method {
+		case http.MethodGet:
+			profile, err := GetOrCreateUser(ctx, userID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			// Include session statuses so frontend can restore sidebar state.
+			statuses, _ := GetUserSessionStatuses(ctx, userID)
+			type response struct {
+				*UserProfile
+				SessionStatuses map[string]string `json:"sessionStatuses"`
+			}
+			json.NewEncoder(w).Encode(response{profile, statuses})
+
+		case http.MethodPut:
+			var req struct {
+				Name         string `json:"name"`
+				Model        string `json:"model"`
+				AnthropicKey string `json:"anthropicKey"`
+				GithubToken  string `json:"githubToken"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request", http.StatusBadRequest)
+				return
+			}
+			if err := UpdateUser(ctx, userID, req.Name, req.Model, req.AnthropicKey, req.GithubToken); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			profile, _ := GetUser(ctx, userID)
+			json.NewEncoder(w).Encode(profile)
+
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/profile/session", func(w http.ResponseWriter, r *http.Request) {
+		if DB == nil || r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		userID := getUserID(w, r)
+		var req struct {
+			SessionID string `json:"sessionId"`
+			Status    string `json:"status"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.SessionID != "" && (req.Status == "joined" || req.Status == "left") {
+			SetUserSessionStatus(r.Context(), userID, req.SessionID, req.Status)
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	mux.HandleFunc("/api/admin/sessions", func(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +267,23 @@ func loadEnvFile(path string) bool {
 		}
 	}
 	return loaded
+}
+
+// getUserID reads or creates the cas-user-id cookie for persistent identity.
+func getUserID(w http.ResponseWriter, r *http.Request) string {
+	if cookie, err := r.Cookie("cas-user-id"); err == nil && cookie.Value != "" {
+		return cookie.Value
+	}
+	id := uuid.New().String()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "cas-user-id",
+		Value:    id,
+		Path:     "/",
+		MaxAge:   int((365 * 24 * time.Hour).Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return id
 }
 
 func localIP() string {

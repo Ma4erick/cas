@@ -119,7 +119,7 @@ func NewSessionManager(hub *Hub) *SessionManager {
 		projectsDir: projectsDir,
 		model:       defaultModel(),
 	}
-	sm.loadFromDisk()
+	sm.loadSessions()
 
 	// Background ticker: prune sessions whose folders have been manually removed.
 	go func() {
@@ -142,20 +142,15 @@ func casDir(workDir string) string {
 	return filepath.Join(workDir, ".cas")
 }
 
-func (sm *SessionManager) sessionPath(session *Session) string {
-	return filepath.Join(casDir(session.WorkDir), "session.json")
-}
-
 // ensureGitIgnore adds .cas/ to the project's .gitignore if not already present.
 func ensureGitIgnore(workDir string) {
 	gitignorePath := filepath.Join(workDir, ".gitignore")
 	entry := ".cas/"
-
 	data, err := os.ReadFile(gitignorePath)
 	if err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			if strings.TrimSpace(line) == entry {
-				return // already present
+				return
 			}
 		}
 		f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_WRONLY, 0644)
@@ -171,28 +166,121 @@ func ensureGitIgnore(workDir string) {
 	}
 }
 
+// persistSession writes session metadata to DB (or falls back to disk if no DB).
+func (sm *SessionManager) persistSession(session *Session) {
+	if DB != nil {
+		ctx := context.Background()
+		session.mu.RLock()
+		id, name, workDir, createdAt := session.ID, session.Name, session.WorkDir, session.CreatedAt
+		session.mu.RUnlock()
+		if err := DBCreateSession(ctx, id, name, workDir, createdAt); err != nil {
+			log.Printf("failed to persist session %s: %v", id, err)
+		}
+		return
+	}
+	sm.saveToDisk(session)
+}
+
+// saveToDisk is kept as a fallback when no DB is configured.
 func (sm *SessionManager) saveToDisk(session *Session) {
 	session.mu.RLock()
 	data, err := json.Marshal(session)
-	path := sm.sessionPath(session)
+	path := filepath.Join(casDir(session.WorkDir), "session.json")
 	session.mu.RUnlock()
 	if err != nil {
 		log.Printf("failed to marshal session %s: %v", session.ID, err)
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		log.Printf("failed to create dir for session %s: %v", session.ID, err)
 		return
 	}
 	ensureGitIgnore(session.WorkDir)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		log.Printf("failed to write session %s: %v", session.ID, err)
 		return
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		log.Printf("failed to rename session file %s: %v", session.ID, err)
+	os.Rename(tmp, path)
+}
+
+// persistMessage writes a message to DB (or falls back to re-saving the whole session).
+func (sm *SessionManager) persistMessage(session *Session, msg Message) {
+	if DB != nil {
+		if err := DBAddMessage(context.Background(), session.ID, msg.ID, msg.Role, msg.Content, msg.Sender, msg.Timestamp); err != nil {
+			log.Printf("failed to persist message %s: %v", msg.ID, err)
+		}
+		return
 	}
+	sm.persistSession(session)
+}
+
+func (sm *SessionManager) loadSessions() {
+	if DB != nil {
+		sm.loadFromDB()
+		return
+	}
+	sm.loadFromDisk()
+}
+
+func (sm *SessionManager) loadFromDB() {
+	ctx := context.Background()
+	dbSessions, err := DBListSessions(ctx)
+	if err != nil {
+		log.Printf("failed to load sessions from DB: %v", err)
+		return
+	}
+	for _, ds := range dbSessions {
+		msgs, err := DBGetMessages(ctx, ds.ID)
+		if err != nil {
+			log.Printf("failed to load messages for session %s: %v", ds.ID, err)
+		}
+		messages := make([]Message, 0, len(msgs))
+		for _, m := range msgs {
+			messages = append(messages, Message{
+				ID: m.ID, Role: m.Role, Content: m.Content,
+				Sender: m.Sender, Timestamp: m.CreatedAt,
+			})
+		}
+		sm.sessions[ds.ID] = &Session{
+			ID: ds.ID, Name: ds.Name, WorkDir: ds.WorkDir,
+			Messages: messages, CreatedAt: ds.CreatedAt,
+		}
+	}
+
+	// Migrate any remaining disk sessions not yet in DB.
+	migrated := 0
+	entries, _ := os.ReadDir(sm.projectsDir)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(sm.projectsDir, entry.Name(), ".cas", "session.json")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var s Session
+		if err := json.Unmarshal(data, &s); err != nil {
+			continue
+		}
+		if _, exists := sm.sessions[s.ID]; exists {
+			continue // already in DB
+		}
+		if s.WorkDir == "" {
+			s.WorkDir = filepath.Join(sm.projectsDir, entry.Name())
+		}
+		// Migrate to DB
+		if err := DBCreateSession(ctx, s.ID, s.Name, s.WorkDir, s.CreatedAt); err == nil {
+			for _, m := range s.Messages {
+				DBAddMessage(ctx, s.ID, m.ID, m.Role, m.Content, m.Sender, m.Timestamp)
+			}
+			sm.sessions[s.ID] = &s
+			migrated++
+		}
+	}
+	if migrated > 0 {
+		log.Printf("migrated %d session(s) from disk to DB", migrated)
+	}
+	log.Printf("loaded %d session(s) from DB", len(sm.sessions))
 }
 
 func (sm *SessionManager) loadFromDisk() {
@@ -248,8 +336,13 @@ func (sm *SessionManager) DeleteSession(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	if err := os.Remove(sm.sessionPath(session)); err != nil && !os.IsNotExist(err) {
-		log.Printf("failed to delete session file %s: %v", sessionID, err)
+	if DB != nil {
+		if err := DBDeleteSession(context.Background(), sessionID); err != nil {
+			log.Printf("failed to delete session from DB %s: %v", sessionID, err)
+		}
+	} else {
+		path := filepath.Join(casDir(session.WorkDir), "session.json")
+		os.Remove(path)
 	}
 
 	sm.hub.BroadcastSessionList(sm.sessionList())
@@ -297,6 +390,11 @@ func (sm *SessionManager) pruneDeletedSessions() {
 
 	if len(removed) > 0 {
 		log.Printf("pruned %d session(s) with missing project folders", len(removed))
+		if DB != nil {
+			for _, id := range removed {
+				DBDeleteSession(context.Background(), id)
+			}
+		}
 		sm.hub.BroadcastSessionList(sm.sessionList())
 	}
 }
@@ -359,7 +457,7 @@ func (sm *SessionManager) cloneInBackground(session *Session, repoURL string, gi
 			Timestamp: time.Now(),
 		}
 		session.AddMessage(msg)
-		sm.saveToDisk(session)
+		sm.persistSession(session)
 		sm.hub.BroadcastToSession(sessionID, WSMessage{Type: "user_message", Message: &msg})
 		sm.hub.BroadcastSessionList(sm.sessionList())
 	}
@@ -424,7 +522,11 @@ func (sm *SessionManager) cloneInBackground(session *Session, repoURL string, gi
 	session.mu.Lock()
 	session.WorkDir = dest
 	session.mu.Unlock()
-	sm.saveToDisk(session)
+	if DB != nil {
+		DBUpdateSessionWorkDir(context.Background(), session.ID, dest)
+	} else {
+		sm.saveToDisk(session)
+	}
 	sm.hub.BroadcastSessionList(sm.sessionList())
 
 	verb := "pulled"
@@ -505,7 +607,7 @@ func (sm *SessionManager) CreateSession(w http.ResponseWriter, r *http.Request) 
 	sm.sessions[session.ID] = session
 	sm.mu.Unlock()
 
-	sm.saveToDisk(session)
+	sm.persistSession(session)
 	sm.hub.BroadcastSessionList(sm.sessionList())
 
 	w.Header().Set("Content-Type", "application/json")
@@ -563,7 +665,11 @@ func (sm *SessionManager) DeleteMessage(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	sm.saveToDisk(session)
+	if DB != nil {
+		DBDeleteMessage(context.Background(), msgID)
+	} else {
+		sm.saveToDisk(session)
+	}
 	sm.hub.BroadcastToSession(sessionID, WSMessage{
 		Type:      "message_deleted",
 		MessageID: msgID,
@@ -811,7 +917,7 @@ func (sm *SessionManager) UploadFile(w http.ResponseWriter, r *http.Request, ses
 	}
 	session.AddMessage(msg)
 	sm.hub.BroadcastToSession(sessionID, WSMessage{Type: "user_message", Message: &msg})
-	sm.saveToDisk(session)
+	sm.persistSession(session)
 	sm.hub.BroadcastSessionList(sm.sessionList())
 
 	w.Header().Set("Content-Type", "application/json")
@@ -833,7 +939,7 @@ func (sm *SessionManager) UploadFile(w http.ResponseWriter, r *http.Request, ses
 			Timestamp: time.Now(),
 		}
 		session.AddMessage(agentMsg)
-		sm.saveToDisk(session)
+		sm.persistSession(session)
 		sm.streamResponse(sessionID, session, uploadAnthropicKey, "")
 	}()
 }
@@ -891,6 +997,14 @@ func formatBytes(b int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
+// userIDFromRequest extracts the cas-user-id cookie value.
+func userIDFromRequest(r *http.Request) string {
+	if c, err := r.Cookie("cas-user-id"); err == nil {
+		return c.Value
+	}
+	return ""
+}
+
 func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, sessionID string) {
 	session, ok := sm.GetSession(sessionID)
 	if !ok {
@@ -935,7 +1049,7 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 		session.mu.Lock()
 		session.WorkDir = abs
 		session.mu.Unlock()
-		sm.saveToDisk(session)
+		sm.persistSession(session)
 		sm.hub.BroadcastSessionList(sm.sessionList())
 		sm.hub.BroadcastToSession(sessionID, WSMessage{
 			Type:  "work_dir_changed",
@@ -953,19 +1067,36 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 		Timestamp: time.Now(),
 	}
 	session.AddMessage(userMsg)
+	sm.persistMessage(session, userMsg)
 
 	sm.hub.BroadcastToSession(sessionID, WSMessage{
 		Type:    "user_message",
 		Message: &userMsg,
 	})
-	sm.saveToDisk(session)
 	sm.hub.BroadcastSessionList(sm.sessionList())
 
 	w.WriteHeader(http.StatusAccepted)
 
 	// Messages starting with @ are teammate callouts — skip the agent.
 	if !strings.HasPrefix(strings.TrimSpace(req.Content), "@") {
-		go sm.streamResponse(sessionID, session, strings.TrimSpace(req.AnthropicKey), strings.TrimSpace(req.Model))
+		anthropicKey := strings.TrimSpace(req.AnthropicKey)
+		model := strings.TrimSpace(req.Model)
+
+		// If DB is available, prefer the server-stored key over the browser-sent one.
+		if DB != nil {
+			if userID := userIDFromRequest(r); userID != "" {
+				if dbKey, err := GetUserAnthropicKey(r.Context(), userID); err == nil && dbKey != "" {
+					anthropicKey = dbKey
+				}
+				if row := DB.QueryRow(r.Context(), `SELECT model FROM users WHERE id = $1`, userID); row != nil {
+					var dbModel string
+					if err := row.Scan(&dbModel); err == nil && dbModel != "" {
+						model = dbModel
+					}
+				}
+			}
+		}
+		go sm.streamResponse(sessionID, session, anthropicKey, model)
 	}
 }
 
@@ -1265,7 +1396,7 @@ func (sm *SessionManager) streamResponse(sessionID string, session *Session, ant
 				Timestamp: time.Now(),
 			}
 			session.AddMessage(assistantMsg)
-			sm.saveToDisk(session)
+			sm.persistMessage(session, assistantMsg)
 			sm.hub.BroadcastSessionList(sm.sessionList())
 		}
 
