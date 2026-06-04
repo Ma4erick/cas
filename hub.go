@@ -32,14 +32,15 @@ type WSMessage struct {
 }
 
 type Client struct {
-	id        string
-	sessionID string
-	userID    string
-	name      string
-	announce  bool // true only on first join / explicit leave
-	conn      *websocket.Conn
-	send      chan []byte
-	hub       *Hub
+	id            string
+	sessionID     string
+	userID        string
+	name          string
+	announce      bool // true on first join — fires "joined" notice
+	explicitLeave bool // true only when user clicks ✕ — fires "left" notice
+	conn          *websocket.Conn
+	send          chan []byte
+	hub           *Hub
 }
 
 func (c *Client) writePump() {
@@ -120,15 +121,21 @@ func (h *Hub) Run() {
 			h.sessions[client.sessionID][client] = true
 			h.mu.Unlock()
 			if client.name != "" && client.announce {
-				// Only fire "joined" if the user wasn't already joined in the DB.
-				// This prevents re-announcing on every page reload.
-				alreadyJoined := false
+				// Check the DB status BEFORE marking as joined.
+				// - If status was 'left' or absent → genuine rejoin → fire notice.
+				// - If status was 'joined' → page reload → suppress.
+				prevStatus := ""
 				if DB != nil && client.userID != "" {
 					statuses, _ := GetUserSessionStatuses(context.Background(), client.userID)
-					alreadyJoined = statuses[client.sessionID] == "joined"
+					prevStatus = statuses[client.sessionID]
 				}
-				if !alreadyJoined {
-					logVerbose("ws join: %s → session %s", client.name, client.sessionID)
+				shouldAnnounce := prevStatus != "joined"
+				// Update DB to joined now that we've checked.
+				if DB != nil && client.userID != "" {
+					SetUserSessionStatus(context.Background(), client.userID, client.sessionID, "joined")
+				}
+				if shouldAnnounce {
+					logVerbose("ws join: %s → session %s (prev: %q)", client.name, client.sessionID, prevStatus)
 					h.BroadcastToSession(client.sessionID, WSMessage{
 						Type: "system",
 						Text: client.name + " joined",
@@ -148,7 +155,13 @@ func (h *Hub) Run() {
 				}
 			}
 			h.mu.Unlock()
-			if client.name != "" && client.announce {
+			if client.name != "" && client.explicitLeave {
+				logVerbose("ws leave: %s → session %s", client.name, client.sessionID)
+				// Update DB status to 'left' synchronously here so a fast rejoin
+				// always sees the correct previous status.
+				if DB != nil && client.userID != "" {
+					SetUserSessionStatus(context.Background(), client.userID, client.sessionID, "left")
+				}
 				h.BroadcastToSession(client.sessionID, WSMessage{
 					Type: "system",
 					Text: client.name + " left",
@@ -273,14 +286,15 @@ func (h *Hub) ServeWS(sm *SessionManager, sessionID string, w http.ResponseWrite
 		userID = c.Value
 	}
 	client := &Client{
-		id:        uuid.New().String(),
-		sessionID: sessionID,
-		userID:    userID,
-		name:      r.URL.Query().Get("name"),
-		announce:  r.URL.Query().Get("announce") == "1",
-		conn:      conn,
-		send:      make(chan []byte, 64),
-		hub:       h,
+		id:            uuid.New().String(),
+		sessionID:     sessionID,
+		userID:        userID,
+		name:          r.URL.Query().Get("name"),
+		announce:      r.URL.Query().Get("announce") == "1",
+		explicitLeave: r.URL.Query().Get("leave") == "1",
+		conn:          conn,
+		send:          make(chan []byte, 64),
+		hub:           h,
 	}
 
 	h.register <- client

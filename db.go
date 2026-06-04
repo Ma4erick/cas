@@ -155,6 +155,9 @@ const alterations = `
 ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS atlassian_token TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS atlassian_email TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS atlassian_domain TEXT NOT NULL DEFAULT '';
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_color TEXT NOT NULL DEFAULT '';
 ALTER TABLE session_members ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (LOWER(username)) WHERE username IS NOT NULL;
@@ -190,16 +193,20 @@ func seedDefaultUser(ctx context.Context) error {
 
 // UserProfile holds a user's persisted settings.
 type UserProfile struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
-	Model            string    `json:"model"`
-	Color            string    `json:"color"`
-	AnthropicKeySet  bool      `json:"anthropicKeySet"`
-	AnthropicKeyHint string    `json:"anthropicKeyHint"`
-	GithubTokenSet   bool      `json:"githubTokenSet"`
-	GithubTokenHint  string    `json:"githubTokenHint"`
-	CreatedAt        time.Time `json:"createdAt"`
-	LastSeen         time.Time `json:"lastSeen"`
+	ID                   string    `json:"id"`
+	Name                 string    `json:"name"`
+	Model                string    `json:"model"`
+	Color                string    `json:"color"`
+	AnthropicKeySet      bool      `json:"anthropicKeySet"`
+	AnthropicKeyHint     string    `json:"anthropicKeyHint"`
+	GithubTokenSet       bool      `json:"githubTokenSet"`
+	GithubTokenHint      string    `json:"githubTokenHint"`
+	AtlassianTokenSet    bool      `json:"atlassianTokenSet"`
+	AtlassianTokenHint   string    `json:"atlassianTokenHint"`
+	AtlassianEmail       string    `json:"atlassianEmail"`
+	AtlassianDomain      string    `json:"atlassianDomain"`
+	CreatedAt            time.Time `json:"createdAt"`
+	LastSeen             time.Time `json:"lastSeen"`
 }
 
 // GetOrCreateUser loads a user profile by ID, creating it if it doesn't exist.
@@ -217,13 +224,15 @@ func GetOrCreateUser(ctx context.Context, userID string) (*UserProfile, error) {
 // GetUser loads a user profile including masked key hints.
 func GetUser(ctx context.Context, userID string) (*UserProfile, error) {
 	row := DB.QueryRow(ctx, `
-		SELECT id, name, model, color, anthropic_key, github_token, created_at, last_seen
+		SELECT id, name, model, color, anthropic_key, github_token,
+		       atlassian_token, atlassian_email, atlassian_domain, created_at, last_seen
 		FROM users WHERE id = $1
 	`, userID)
 
 	var p UserProfile
-	var anthropicKey, githubToken *string
-	err := row.Scan(&p.ID, &p.Name, &p.Model, &p.Color, &anthropicKey, &githubToken, &p.CreatedAt, &p.LastSeen)
+	var anthropicKey, githubToken, atlassianToken *string
+	err := row.Scan(&p.ID, &p.Name, &p.Model, &p.Color, &anthropicKey, &githubToken,
+		&atlassianToken, &p.AtlassianEmail, &p.AtlassianDomain, &p.CreatedAt, &p.LastSeen)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -241,12 +250,36 @@ func GetUser(ctx context.Context, userID string) (*UserProfile, error) {
 		p.GithubTokenSet = plain != ""
 		p.GithubTokenHint = maskKey(plain)
 	}
+	if atlassianToken != nil && *atlassianToken != "" {
+		plain, _ := Decrypt(*atlassianToken)
+		p.AtlassianTokenSet = plain != ""
+		p.AtlassianTokenHint = maskKey(plain)
+	}
 	return &p, nil
 }
 
 // UpdateUser saves name, model, and optionally encrypted keys.
 // Pass empty string for a key to leave it unchanged.
-func UpdateUser(ctx context.Context, userID, name, model, anthropicKey, githubToken string) error {
+func UpdateUser(ctx context.Context, userID, name, model, anthropicKey, githubToken, atlassianToken, atlassianEmail, atlassianDomain string) error {
+	if atlassianToken != "" {
+		enc, err := Encrypt(atlassianToken)
+		if err != nil {
+			return err
+		}
+		if _, err := DB.Exec(ctx, `UPDATE users SET atlassian_token = $1 WHERE id = $2`, enc, userID); err != nil {
+			return err
+		}
+	}
+	if atlassianEmail != "" {
+		if _, err := DB.Exec(ctx, `UPDATE users SET atlassian_email = $1 WHERE id = $2`, atlassianEmail, userID); err != nil {
+			return err
+		}
+	}
+	if atlassianDomain != "" {
+		if _, err := DB.Exec(ctx, `UPDATE users SET atlassian_domain = $1 WHERE id = $2`, atlassianDomain, userID); err != nil {
+			return err
+		}
+	}
 	if anthropicKey != "" {
 		enc, err := Encrypt(anthropicKey)
 		if err != nil {
@@ -269,6 +302,35 @@ func UpdateUser(ctx context.Context, userID, name, model, anthropicKey, githubTo
 		UPDATE users SET name = $1, model = $2, last_seen = NOW() WHERE id = $3
 	`, name, model, userID)
 	return err
+}
+
+// UserShellEnv returns environment variables to inject into shell commands for a user.
+func UserShellEnv(ctx context.Context, userID string) []string {
+	var env []string
+	var ghEnc, atlEnc *string
+	var atlEmail string
+	DB.QueryRow(ctx, `SELECT github_token, atlassian_token, atlassian_email FROM users WHERE id = $1`, userID).
+		Scan(&ghEnc, &atlEnc, &atlEmail)
+
+	if ghEnc != nil {
+		if plain, err := Decrypt(*ghEnc); err == nil && plain != "" {
+			env = append(env, "GH_TOKEN="+plain)
+			env = append(env, "GITHUB_TOKEN="+plain)
+		}
+	}
+	if atlEnc != nil {
+		if plain, err := Decrypt(*atlEnc); err == nil && plain != "" {
+			env = append(env, "ATLASSIAN_API_TOKEN="+plain)
+		}
+	}
+	if atlEmail != "" {
+		env = append(env, "ATLASSIAN_USER_EMAIL="+atlEmail)
+	}
+	// ATLASSIAN_DOMAIN is org-wide — read from server environment.
+	if domain := os.Getenv("ATLASSIAN_DOMAIN"); domain != "" {
+		env = append(env, "ATLASSIAN_DOMAIN="+domain)
+	}
+	return env
 }
 
 // GetUserColor returns the user's chosen display colour.

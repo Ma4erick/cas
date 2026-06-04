@@ -1284,6 +1284,8 @@
       <div id="profile-name-wrap">
         <label>Display name</label>
         <input id="profile-name" type="text" placeholder="Your name" maxlength="32">
+        <input id="profile-atlassian-email" type="email" placeholder="your@email.com" autocomplete="off"
+          style="background:none;border:none;color:var(--text-muted);font-size:11px;padding:0;outline:none;width:100%;margin-top:3px;font-family:inherit;">
       </div>
     </div>
     <div class="profile-field">
@@ -1310,8 +1312,16 @@
       <label>GitHub Token <span class="key-status key-unset" id="github-status">Not set</span></label>
       <input id="profile-github" type="password" placeholder="ghp_…" autocomplete="off" spellcheck="false">
     </div>
-    <div style="display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border);">
-      <button id="profile-save" class="btn btn-primary" style="flex:1;">Save</button>
+    <div class="profile-field" style="border-top:1px solid var(--border);padding-top:14px;">
+      <label>Atlassian API Token <span class="key-status key-unset" id="atlassian-status">Not set</span>
+        <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" style="color:var(--accent);font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px;">Generate ↗</a>
+      </label>
+      <input id="profile-atlassian-token" type="password" placeholder="Atlassian API token" autocomplete="off" spellcheck="false">
+      <p style="font-size:11px;color:var(--text-muted);margin-top:5px;">Generate a token at Atlassian, copy it immediately — it's only shown once.</p>
+    </div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);">
+      <div id="profile-success" style="display:none;color:#23a559;font-size:13px;font-weight:600;margin-bottom:10px;text-align:center;">✓ Changes saved successfully</div>
+      <button id="profile-save" class="btn btn-primary" style="width:100%;">Save changes</button>
     </div>
     <button id="profile-logout">↩ Sign out</button>
   </div>
@@ -1427,7 +1437,10 @@ const profileAnthropic = document.getElementById('profile-anthropic');
 const profileGithub    = document.getElementById('profile-github');
 const anthropicStatus = document.getElementById('anthropic-status');
 const githubStatus   = document.getElementById('github-status');
-const profileLogout  = document.getElementById('profile-logout');
+const profileLogout         = document.getElementById('profile-logout');
+const profileAtlassianToken  = document.getElementById('profile-atlassian-token');
+const profileAtlassianEmail  = document.getElementById('profile-atlassian-email');
+const atlassianStatus        = document.getElementById('atlassian-status');
 
 // Unread tracking — persisted in localStorage per session.
 function getReadCount(id) { return parseInt(localStorage.getItem('cas-read-' + id) || '0', 10); }
@@ -1478,12 +1491,12 @@ function saveLeft(set) { localStorage.setItem('cas-left', JSON.stringify([...set
 function joinSession(id) {
   const j = getJoined(); j.add(id); saveJoined(j);
   const l = getLeft(); l.delete(id); saveLeft(l);
-  syncSessionStatus(id, 'joined');
+  // DB join status is updated server-side in ServeWS when the WS connects.
 }
 function leaveSession(id) {
   const j = getJoined(); j.delete(id); saveJoined(j);
   const l = getLeft(); l.add(id); saveLeft(l);
-  syncSessionStatus(id, 'left');
+  // DB leave status is updated server-side in hub.go when the leave WS closes.
 }
 
 function updateAvatar() { /* avatar is now a fixed org image */ }
@@ -1648,6 +1661,8 @@ async function saveProfile() {
       model: profileModel.value,
       anthropicKey: profileAnthropic.value.trim(),
       githubToken: profileGithub.value.trim(),
+      atlassianToken: profileAtlassianToken.value.trim(),
+      atlassianEmail: profileAtlassianEmail.value.trim(),
     }),
   });
   if (res.ok) {
@@ -1675,12 +1690,17 @@ function openProfile() {
     profileColor.value = serverProfile.color || senderColour(serverProfile.name || 'User', false);
     profileAnthropic.value = '';
     profileGithub.value = '';
+    profileAtlassianToken.value = '';
     profileAnthropic.placeholder = serverProfile.anthropicKeySet
       ? `Currently set (${serverProfile.anthropicKeyHint}) — enter new to change` : 'sk-ant-…';
     profileGithub.placeholder = serverProfile.githubTokenSet
       ? `Currently set (${serverProfile.githubTokenHint}) — enter new to change` : 'ghp_…';
+    profileAtlassianToken.placeholder = serverProfile.atlassianTokenSet
+      ? `Currently set (${serverProfile.atlassianTokenHint}) — enter new to change` : 'Atlassian API token';
+    profileAtlassianEmail.value = serverProfile.atlassianEmail || '';
     updateKeyStatus(anthropicStatus, serverProfile.anthropicKeySet, serverProfile.anthropicKeyHint);
     updateKeyStatus(githubStatus, serverProfile.githubTokenSet, serverProfile.githubTokenHint);
+    updateKeyStatus(atlassianStatus, serverProfile.atlassianTokenSet, serverProfile.atlassianTokenHint);
   } else {
     profileName.value = localStorage.getItem('cas-sender-name') || '';
     profileModel.value = localStorage.getItem('cas-model') || 'claude-sonnet-4-6';
@@ -1742,6 +1762,8 @@ profileGithub.addEventListener('input', () => {
   }
 });
 
+const profileSuccess = document.getElementById('profile-success');
+
 document.getElementById('profile-save').addEventListener('click', async () => {
   localStorage.setItem('cas-sender-name', profileName.value);
   localStorage.setItem('cas-model', profileModel.value);
@@ -1752,7 +1774,10 @@ document.getElementById('profile-save').addEventListener('click', async () => {
   senderName.value = profileName.value;
   updateAvatar();
   await saveProfile();
-  closeProfile();
+
+  // Show success message instead of closing.
+  profileSuccess.style.display = 'block';
+  setTimeout(() => { profileSuccess.style.display = 'none'; }, 3000);
 });
 
 profileLogout.addEventListener('click', async () => {
@@ -2453,7 +2478,7 @@ function deleteSession(id) {
     // then immediately close it.
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const name = encodeURIComponent(senderName.value.trim() || 'Anonymous');
-    const leaveWS = new WebSocket(`${proto}://${location.host}/api/sessions/${id}/ws?name=${name}&announce=1`);
+    const leaveWS = new WebSocket(`${proto}://${location.host}/api/sessions/${id}/ws?name=${name}&leave=1`);
     leaveWS.onopen = () => leaveWS.close();
 
     if (state.ws) { state.ws.close(); state.ws = null; }

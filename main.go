@@ -189,16 +189,18 @@ func main() {
 
 		case http.MethodPut:
 			var req struct {
-				Name         string `json:"name"`
-				Model        string `json:"model"`
-				AnthropicKey string `json:"anthropicKey"`
-				GithubToken  string `json:"githubToken"`
+				Name           string `json:"name"`
+				Model          string `json:"model"`
+				AnthropicKey   string `json:"anthropicKey"`
+				GithubToken    string `json:"githubToken"`
+				AtlassianToken string `json:"atlassianToken"`
+				AtlassianEmail string `json:"atlassianEmail"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				http.Error(w, "invalid request", http.StatusBadRequest)
 				return
 			}
-			if err := UpdateUser(ctx, userID, req.Name, req.Model, req.AnthropicKey, req.GithubToken); err != nil {
+			if err := UpdateUser(ctx, userID, req.Name, req.Model, req.AnthropicKey, req.GithubToken, req.AtlassianToken, req.AtlassianEmail, ""); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}

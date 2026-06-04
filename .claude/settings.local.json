@@ -21,7 +21,13 @@
       "Bash(ls ~/Desktop/avatar.png)",
       "Bash(python3)",
       "Bash(go get *)",
-      "Bash(find ~/cas-projects -name \"session.json\" 2>/dev/null *)"
+      "Bash(find ~/cas-projects -name \"session.json\" 2>/dev/null *)",
+      "WebFetch(domain:github.com)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c ' *)",
+      "Bash(rm -f /tmp/cas-cookies.txt)",
+      "Read(//Users/london.summers/**)",
+      "Bash(echo -e \"\\\\nCAS_USERNAME=London\\\\nCAS_PASSWORD=ma4er!CK\")"
     ]
   }
 }

@@ -37,24 +37,26 @@ Each user authenticates with their own username and password. API keys are store
 
 ## Features
 
-- **Authentication** — Username/password login with bcrypt. Registration built in, SSO integration planned
-- **Persistent user profiles** — Display name, model preference, colour, and encrypted API keys stored in PostgreSQL. Profile follows the user across any browser or device
+- **Authentication** — Username/password login with bcrypt. Default `CAS/CAS` user created on fresh install. SSO integration planned
+- **Persistent user profiles** — Display name, email, colour, model, and encrypted API keys stored in PostgreSQL. Profile follows the user across any browser or device
 - **Shared sessions** — Multiple users in the same session via WebSocket. Everyone sees messages, agent responses, and tool activity in real time
 - **Agentic coding** — The agent reads and writes files, runs shell commands, and operates git directly on the server's project folders. Interrupt mid-stream with the Stop button
-- **Per-user Anthropic key and model** — Each user brings their own API key (stored server-side, encrypted). Choose Opus, Sonnet, or Haiku per user from the profile settings
-- **Per-user message colour** — Each user picks a display colour for their messages in the profile settings
-- **GitHub integration** — Paste a GitHub URL to clone a repo. Private repos use the user's own GitHub token stored encrypted in the DB
+- **Per-user Anthropic key and model** — Each user brings their own API key (stored server-side, encrypted). Choose Opus, Sonnet, or Haiku from the profile settings
+- **Per-user message colour** — Each user picks a display colour for their messages
+- **GitHub integration** — Paste a GitHub URL to clone a repo. Per-user GitHub token stored encrypted in the DB, injected as `GH_TOKEN` for all `gh` CLI commands
+- **Atlassian integration** — Per-user Atlassian API token stored encrypted in the DB, injected as `ATLASSIAN_API_TOKEN` for Jira/Confluence REST API calls. Domain configured server-wide via `ATLASSIAN_DOMAIN`
+- **Koda marketplace support** — Sessions automatically inject `CLAUDE.md` and `SKILL.md` files from the project into the agent's system prompt, enabling OutSystems coding standards and Koda workflow commands (`koda init`, `koda plugin add`, etc.)
 - **Per-session working directories** — Each session points at a different project or repo on the server
 - **Live tool visibility** — File edits and command output appear as collapsible blocks in the chat, visible to all teammates
 - **File uploads** — Upload PDFs, images, and documents into the session. The agent reads and summarises them automatically
 - **@mention autocomplete** — Type `@` to get a filtered dropdown of registered users, Slack-style
 - **Unread message badges** — Per-user unread counts tracked in PostgreSQL, accurate across sessions and devices
-- **Join / leave notices** — Teammates see who joins and leaves each session (fires once per genuine join, not on every page reload)
+- **Join / leave notices** — Fires only on genuine first join or explicit leave — not on page reloads or session switching
 - **Admin panel** — Session management with git health checks (uncommitted/unpushed) and safe deletion with confirmation
 - **Stop agent** — Cancel a running agent response mid-stream
 - **Session search** — Search all sessions in the Discover section by name
 - **Multi-pod ready** — Redis pub/sub broadcasts WebSocket events across all pod instances
-- **Claude Code integration** — `/cas` and `/cas-pull` slash commands to push and pull context between a local Claude Code session and CAS
+- **Claude Code integration** — `/cas` and `/cas-pull` slash commands (with authentication) to push and pull context between a local Claude Code session and CAS
 
 ---
 
@@ -108,10 +110,12 @@ Each user configures their profile via the **⚙ icon** next to their name at th
 | Setting | Description |
 |---|---|
 | **Display name** | Shown alongside your messages |
+| **Email** | Your account email — used for Atlassian API authentication |
 | **Colour** | Your message colour — visible to everyone in sessions |
 | **Model** | Choose Opus, Sonnet, or Haiku per user |
 | **Anthropic API Key** | `sk-ant-…` — encrypted and stored in PostgreSQL |
-| **GitHub Token** | `ghp_…` — encrypted and stored in PostgreSQL, used for private repo cloning |
+| **GitHub Token** | `ghp_…` — encrypted and stored in PostgreSQL. Injected as `GH_TOKEN` for `gh` CLI commands |
+| **Atlassian API Token** | Generated at `id.atlassian.com/manage-profile/security/api-tokens`. Injected as `ATLASSIAN_API_TOKEN` for Jira/Confluence REST API calls |
 
 All settings persist across browsers and devices once saved.
 
@@ -128,6 +132,7 @@ Server behaviour is controlled via `~/.cas.env` or environment variables:
 | `REDIS_URL` | — | Redis connection string for multi-pod WebSocket pub/sub |
 | `CAS_PROJECTS_DIR` | `~/cas-projects` | Root folder for all project working directories |
 | `CAS_MODEL` | `claude-sonnet-4-6` | Server fallback model |
+| `ATLASSIAN_DOMAIN` | — | Org-wide Atlassian domain e.g. `yourcompany.atlassian.net` — injected for all users |
 
 ```
 # ~/.cas.env
@@ -136,6 +141,7 @@ CAS_SECRET=your-32-character-random-secret
 REDIS_URL=redis://localhost:6379
 CAS_PROJECTS_DIR=/home/user/projects
 CAS_MODEL=claude-sonnet-4-6
+ATLASSIAN_DOMAIN=yourcompany.atlassian.net
 ```
 
 CAS creates the database and runs all schema migrations automatically on startup.

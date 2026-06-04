@@ -959,7 +959,7 @@ func (sm *SessionManager) UploadFile(w http.ResponseWriter, r *http.Request, ses
 		}
 		session.AddMessage(agentMsg)
 		sm.persistSession(session)
-		sm.streamResponse(sessionID, session, uploadAnthropicKey, "")
+		sm.streamResponse(sessionID, session, uploadAnthropicKey, "", nil)
 	}()
 }
 
@@ -1123,7 +1123,13 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 				}
 			}
 		}
-		go sm.streamResponse(sessionID, session, anthropicKey, model)
+		userEnv := []string{}
+		if DB != nil {
+			if uid := userIDFromRequest(r); uid != "" {
+				userEnv = UserShellEnv(r.Context(), uid)
+			}
+		}
+		go sm.streamResponse(sessionID, session, anthropicKey, model, userEnv)
 	}
 }
 
@@ -1159,7 +1165,7 @@ var casTools = []anthropic.ToolUnionParam{
 			"path": map[string]interface{}{"type": "string", "description": "Directory path relative to project root. Use '.' for root."},
 		}, []string{"path"}),
 
-	makeTool("bash", "Run an allowed shell command in the project directory. Allowed: go run/build/test/vet/fmt, git status/diff/add/commit/log/push/pull/fetch/checkout/branch/merge/rebase/stash/remote/show/reset.",
+	makeTool("bash", "Run an allowed shell command in the project directory. Allowed: go run/build/test/vet/fmt, git (all common ops), gh pr/issue/repo/run/release/auth status, koda init/update/plugin/tool/backend, curl (for REST APIs — Jira, Confluence, GitHub API etc.).",
 		map[string]interface{}{
 			"command": map[string]interface{}{"type": "string", "description": "The shell command to run."},
 		}, []string{"command"}),
@@ -1170,10 +1176,20 @@ var casTools = []anthropic.ToolUnionParam{
 // ---------------------------------------------------------------------------
 
 var allowedCommands = []string{
+	// Go
 	"go run", "go build", "go test", "go vet", "go fmt",
+	// Git
 	"git status", "git diff", "git add", "git commit", "git log", "git push", "git pull",
 	"git fetch", "git checkout", "git branch", "git merge", "git rebase", "git stash",
 	"git remote", "git show", "git reset",
+	// GitHub CLI
+	"gh pr", "gh issue", "gh repo", "gh run", "gh release", "gh auth status",
+	// Koda marketplace CLI
+	"koda init", "koda update", "koda plugin", "koda tool", "koda backend",
+	// HTTP — for Jira, Confluence, and other REST APIs
+	"curl",
+	// Debugging
+	"echo", "printenv", "env", "which", "cat", "ls", "pwd",
 }
 
 func isAllowed(cmd string) bool {
@@ -1186,7 +1202,7 @@ func isAllowed(cmd string) bool {
 	return false
 }
 
-func (sm *SessionManager) executeTool(name string, rawInput json.RawMessage, workDir string) (string, bool) {
+func (sm *SessionManager) executeTool(name string, rawInput json.RawMessage, workDir string, userEnv []string) (string, bool) {
 	var input map[string]string
 	if err := json.Unmarshal(rawInput, &input); err != nil {
 		return fmt.Sprintf("invalid tool input: %v", err), true
@@ -1235,6 +1251,7 @@ func (sm *SessionManager) executeTool(name string, rawInput json.RawMessage, wor
 		var out bytes.Buffer
 		c := exec.Command("sh", "-c", cmd)
 		c.Dir = workDir
+		c.Env = append(os.Environ(), userEnv...)
 		c.Stdout = &out
 		c.Stderr = &out
 		err := c.Run()
@@ -1261,6 +1278,70 @@ func defaultModel() anthropic.Model {
 	return anthropic.ModelClaudeSonnet4_6
 }
 
+// buildSystemPrompt constructs the system prompt for the agent.
+// It injects CLAUDE.md (project standards) and any SKILL.md files found in
+// plugins/ or .claude/skills/ directories, following the Koda convention.
+func buildSystemPrompt(workDir string, userEnv []string) []anthropic.TextBlockParam {
+	// Build credential hints based on which env vars are actually set.
+	credHints := ""
+	for _, e := range userEnv {
+		switch {
+		case strings.HasPrefix(e, "GH_TOKEN="):
+			credHints += "\n- GitHub: $GH_TOKEN is set — use it with `gh` CLI or as an Authorization header."
+		case strings.HasPrefix(e, "ATLASSIAN_API_TOKEN="):
+			credHints += "\n- Atlassian: $ATLASSIAN_API_TOKEN, $ATLASSIAN_USER_EMAIL, and $ATLASSIAN_DOMAIN are set. Use basic auth for the Jira/Confluence REST API, e.g.:\n  curl -s -u \"$ATLASSIAN_USER_EMAIL:$ATLASSIAN_API_TOKEN\" \"https://$ATLASSIAN_DOMAIN/rest/api/3/issue/TICKET-123\"\n  Always use $ATLASSIAN_DOMAIN — never hardcode the domain."
+		}
+	}
+
+	credSection := ""
+	if credHints != "" {
+		credSection = "\n\nThe user's credentials are already available as environment variables in your shell — never ask the user to paste tokens or secrets:" + credHints
+	}
+
+	base := fmt.Sprintf(
+		"You are a collaborative coding assistant with access to the project at %s. "+
+			"Multiple team members share this session — each user message is prefixed with [Name]:. "+
+			"You can read and edit files, run allowed shell commands, and use git."+
+			"%s"+
+			"\nWhen making changes, explain what you're doing. Be concise and collaborative.",
+		workDir, credSection,
+	)
+
+	blocks := []anthropic.TextBlockParam{{Text: base}}
+
+	// Inject CLAUDE.md if present — provides project-specific standards (Koda convention).
+	if claudeMD, err := os.ReadFile(filepath.Join(workDir, "CLAUDE.md")); err == nil && len(claudeMD) > 0 {
+		log.Printf("system prompt: injecting CLAUDE.md from %s", workDir)
+		blocks = append(blocks, anthropic.TextBlockParam{
+			Text: "## Project Standards (CLAUDE.md)\n\n" + string(claudeMD),
+		})
+	}
+
+	// Inject SKILL.md files from plugins/ and .claude/skills/ directories.
+	skillDirs := []string{
+		filepath.Join(workDir, "plugins"),
+		filepath.Join(workDir, ".claude", "skills"),
+	}
+	for _, dir := range skillDirs {
+		skills, _ := filepath.Glob(filepath.Join(dir, "*", "SKILL.md"))
+		skills2, _ := filepath.Glob(filepath.Join(dir, "*", "*", "SKILL.md"))
+		skills = append(skills, skills2...)
+		for _, skillPath := range skills {
+			content, err := os.ReadFile(skillPath)
+			if err != nil || len(content) == 0 {
+				continue
+			}
+			relPath, _ := filepath.Rel(workDir, skillPath)
+			log.Printf("system prompt: injecting skill %s", relPath)
+			blocks = append(blocks, anthropic.TextBlockParam{
+				Text: fmt.Sprintf("## Skill: %s\n\n%s", relPath, string(content)),
+			})
+		}
+	}
+
+	return blocks
+}
+
 var allowedModels = map[string]bool{
 	"claude-opus-4-8":    true,
 	"claude-opus-4-6":    true,
@@ -1268,7 +1349,7 @@ var allowedModels = map[string]bool{
 	"claude-haiku-4-5":   true,
 }
 
-func (sm *SessionManager) streamResponse(sessionID string, session *Session, anthropicKey string, modelID string) {
+func (sm *SessionManager) streamResponse(sessionID string, session *Session, anthropicKey string, modelID string, userEnv []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	session.mu.Lock()
@@ -1319,22 +1400,14 @@ func (sm *SessionManager) streamResponse(sessionID string, session *Session, ant
 			MessageID: msgID,
 		})
 
+		systemBlocks := buildSystemPrompt(workDir, userEnv)
+
 		stream := client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
 			Model:     model,
 			MaxTokens: 8096,
 			Tools:     casTools,
-			System: []anthropic.TextBlockParam{
-				{
-					Text: fmt.Sprintf(
-						"You are a collaborative coding assistant with access to the project at %s. "+
-							"Multiple team members share this session — each user message is prefixed with [Name]:. "+
-							"You can read and edit files, run allowed shell commands, and use git. "+
-							"When making changes, explain what you're doing. Be concise and collaborative.",
-						workDir,
-					),
-				},
-			},
-			Messages: apiMessages,
+			System:    systemBlocks,
+			Messages:  apiMessages,
 		})
 
 		// Accumulate text and tool_use blocks from this turn.
@@ -1450,7 +1523,7 @@ func (sm *SessionManager) streamResponse(sessionID string, session *Session, ant
 			})
 
 			// Execute the tool.
-			output, isErr := sm.executeTool(tc.name, tc.input, workDir)
+			output, isErr := sm.executeTool(tc.name, tc.input, workDir, userEnv)
 
 			// Broadcast result to teammates.
 			sm.hub.BroadcastToSession(sessionID, WSMessage{
