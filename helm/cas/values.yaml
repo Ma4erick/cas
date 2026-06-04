@@ -1,0 +1,86 @@
+# ── Image ─────────────────────────────────────────────────────────────────────
+image:
+  repository: your-registry/cas
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# ── Replicas ──────────────────────────────────────────────────────────────────
+replicaCount: 2
+
+# ── Service ───────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 8080
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: cas.yourcompany.com
+  tls:
+    enabled: true
+    secretName: cas-tls
+
+# ── CAS configuration ─────────────────────────────────────────────────────────
+config:
+  casBaseUrl: "https://cas.yourcompany.com"
+  casModel: "claude-sonnet-4-6"
+  atlassianDomain: "yourcompany.atlassian.net"
+  showTokenFields: "false"
+  port: "8080"
+
+# ── Secrets (reference existing K8s secrets) ──────────────────────────────────
+secrets:
+  # Name of the K8s secret containing sensitive values.
+  # Create with: kubectl create secret generic cas-secrets \
+  #   --from-literal=database-url='postgresql://...' \
+  #   --from-literal=cas-secret='...' \
+  #   --from-literal=redis-url='redis://...' \
+  #   --from-literal=github-client-id='...' \
+  #   --from-literal=github-client-secret='...' \
+  #   --from-literal=atlassian-client-id='...' \
+  #   --from-literal=atlassian-client-secret='...'
+  name: cas-secrets
+
+# ── Persistent storage for cas-projects ───────────────────────────────────────
+persistence:
+  enabled: true
+  storageClass: efs-sc          # AWS EFS / GCP Filestore / Azure Files
+  size: 50Gi
+  accessMode: ReadWriteMany      # Required for multi-pod
+  mountPath: /projects
+  # existingClaim: ""            # Uncomment to use a pre-existing PVC
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+# ── Health checks ─────────────────────────────────────────────────────────────
+livenessProbe:
+  httpGet:
+    path: /api/config
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /api/config
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# ── Pod settings ──────────────────────────────────────────────────────────────
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+serviceAccount:
+  create: false
+  name: ""

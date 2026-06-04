@@ -1,0 +1,13 @@
+apiVersion: v2
+name: cas
+description: Collaborative Agentic Space — browser-based AI coding platform
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - ai
+  - agentic
+  - coding
+  - collaboration
+maintainers:
+  - name: OutSystems
