@@ -11,14 +11,12 @@ There is nothing to install on a user's machine. Any device with a browser can p
 ## How it works
 
 ```
-┌─────────────────────────────────────────┐
-│           CAS Server                    │
-│                                         │
-│  Go binary · Git · ~/cas-projects/      │
-│                                         │
-│  Holds the code. Runs the tools.        │
-│  Streams everything to every browser.   │
-└────────────────┬────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│               CAS Server                        │
+│  Go binary · Git · PostgreSQL · Redis           │
+│  Holds the code. Runs the tools.                │
+│  Streams everything to every browser.           │
+└────────────────┬────────────────────────────────┘
                  │  WebSocket + HTTP
        ┌─────────┼─────────┐
        ▼         ▼         ▼
@@ -33,33 +31,41 @@ The **browser** is the terminal — where users send instructions, see responses
 The **server** is the execution environment — it holds the code, runs git, reads and writes files.  
 The **Anthropic API** is the intelligence — Claude processes requests and decides what tools to call.
 
-Each user authenticates with their own Anthropic API key, stored in their browser. The server never holds API keys. Rate limits and costs are per-user, not shared.
+Each user authenticates with their own username and password. API keys are stored encrypted in PostgreSQL — never on the client.
 
 ---
 
 ## Features
 
+- **Authentication** — Username/password login with bcrypt. Registration built in, SSO integration planned
+- **Persistent user profiles** — Display name, model preference, colour, and encrypted API keys stored in PostgreSQL. Profile follows the user across any browser or device
 - **Shared sessions** — Multiple users in the same session via WebSocket. Everyone sees messages, agent responses, and tool activity in real time
-- **Agentic coding** — The agent reads and writes files, runs shell commands, and operates git directly on the server's project folders
-- **Per-user API keys** — Each user brings their own Anthropic key. No shared server key required
-- **Model selection** — Each user chooses their own model (Opus, Sonnet, Haiku) from their profile
-- **GitHub integration** — Paste a GitHub URL to clone a repo into a session. Private repos use the user's own GitHub token stored in their browser
-- **Per-session working directories** — Each session can point at a different project or repo on the server
+- **Agentic coding** — The agent reads and writes files, runs shell commands, and operates git directly on the server's project folders. Interrupt mid-stream with the Stop button
+- **Per-user Anthropic key and model** — Each user brings their own API key (stored server-side, encrypted). Choose Opus, Sonnet, or Haiku per user from the profile settings
+- **Per-user message colour** — Each user picks a display colour for their messages in the profile settings
+- **GitHub integration** — Paste a GitHub URL to clone a repo. Private repos use the user's own GitHub token stored encrypted in the DB
+- **Per-session working directories** — Each session points at a different project or repo on the server
 - **Live tool visibility** — File edits and command output appear as collapsible blocks in the chat, visible to all teammates
 - **File uploads** — Upload PDFs, images, and documents into the session. The agent reads and summarises them automatically
-- **Join / leave notices** — Teammates see who joins and leaves each session in real time
+- **@mention autocomplete** — Type `@` to get a filtered dropdown of registered users, Slack-style
+- **Unread message badges** — Per-user unread counts tracked in PostgreSQL, accurate across sessions and devices
+- **Join / leave notices** — Teammates see who joins and leaves each session (fires once per genuine join, not on every page reload)
+- **Admin panel** — Session management with git health checks (uncommitted/unpushed) and safe deletion with confirmation
+- **Stop agent** — Cancel a running agent response mid-stream
+- **Session search** — Search all sessions in the Discover section by name
+- **Multi-pod ready** — Redis pub/sub broadcasts WebSocket events across all pod instances
 - **Claude Code integration** — `/cas` and `/cas-pull` slash commands to push and pull context between a local Claude Code session and CAS
 
 ---
 
 ## Server Requirements
 
-The CAS server requires only:
-
 - **Go 1.23+** — to build the binary
 - **Git** — for cloning repos and agent git operations
+- **PostgreSQL** — user profiles, session history, messages, membership
+- **Redis** — WebSocket pub/sub for multi-pod deployments (optional for single-pod)
 
-**Claude Code is not required on the server.** It is an optional integration for individual developers who want to use the `/cas` and `/cas-pull` slash commands in their local Claude Code sessions.
+**Claude Code is not required on the server.** It is an optional integration for individual developers.
 
 ---
 
@@ -72,20 +78,42 @@ go build -o cas .
 ./cas
 ```
 
-The server starts at `http://localhost:8080`. Share the local network URL (printed on startup) with teammates. Each user opens it in their browser — no install required on their end.
+The server starts at `http://localhost:8080`. On first run with a database configured, a default `CAS / CAS` user is created automatically.
+
+### Verbose logging
+
+```bash
+./cas --verbose
+```
+
+Logs all HTTP requests, WebSocket events, DB writes, and Redis pub/sub activity.
 
 ---
 
-## User Setup (browser)
+## Authentication
 
-Each user configures their profile via the **⚙ icon** in the bottom-left of the sidebar:
+CAS uses username/password authentication with bcrypt password hashing.
+
+- **Login** — username + password
+- **Register** — create an account via the Register link on the login screen (to be replaced with SSO)
+- **Default user** — `CAS / CAS` is created automatically on a fresh install if no registered users exist
+- **Logout** — available in the profile settings (⚙ next to your name)
+
+---
+
+## User Profile
+
+Each user configures their profile via the **⚙ icon** next to their name at the bottom of the sidebar:
 
 | Setting | Description |
 |---|---|
 | **Display name** | Shown alongside your messages |
+| **Colour** | Your message colour — visible to everyone in sessions |
 | **Model** | Choose Opus, Sonnet, or Haiku per user |
-| **Anthropic API Key** | `sk-ant-…` — stored in your browser only, never on the server |
-| **GitHub Token** | `ghp_…` — used for cloning private repos, stored in your browser only |
+| **Anthropic API Key** | `sk-ant-…` — encrypted and stored in PostgreSQL |
+| **GitHub Token** | `ghp_…` — encrypted and stored in PostgreSQL, used for private repo cloning |
+
+All settings persist across browsers and devices once saved.
 
 ---
 
@@ -95,14 +123,22 @@ Server behaviour is controlled via `~/.cas.env` or environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
+| `DATABASE_URL` | — | PostgreSQL connection string (required for persistent profiles) |
+| `CAS_SECRET` | — | 32-byte secret for AES-256-GCM encryption of API keys (required with DB) |
+| `REDIS_URL` | — | Redis connection string for multi-pod WebSocket pub/sub |
 | `CAS_PROJECTS_DIR` | `~/cas-projects` | Root folder for all project working directories |
-| `CAS_MODEL` | `claude-sonnet-4-6` | Server fallback model (used when no user model is specified) |
+| `CAS_MODEL` | `claude-sonnet-4-6` | Server fallback model |
 
 ```
 # ~/.cas.env
+DATABASE_URL=postgresql://user@localhost:5432/cas?sslmode=disable
+CAS_SECRET=your-32-character-random-secret
+REDIS_URL=redis://localhost:6379
 CAS_PROJECTS_DIR=/home/user/projects
 CAS_MODEL=claude-sonnet-4-6
 ```
+
+CAS creates the database and runs all schema migrations automatically on startup.
 
 ---
 
@@ -112,24 +148,23 @@ CAS_MODEL=claude-sonnet-4-6
 
 Press **⌘K** or click **✦ New Session**. Options:
 
-- **GitHub URL** — CAS clones the repo into `CAS_PROJECTS_DIR/<repo-name>`. Uses the user's GitHub token for private repos
-- **Existing folder** — Browse and select a folder already in `CAS_PROJECTS_DIR`
+- **GitHub URL** — CAS clones the repo into `CAS_PROJECTS_DIR/<repo-name>`. Uses the user's encrypted GitHub token for private repos
+- **Existing folder** — Browse folders already in `CAS_PROJECTS_DIR` via the dropdown
 - **Session name only** — A new empty folder is created automatically
+
+### Sidebar sections
+
+| Section | Contents |
+|---|---|
+| **My Sessions** | Sessions you are currently joined to. Sortable by activity, A–Z, Z–A |
+| **Recent Sessions** | Sessions you have previously joined and left |
+| **Discover** | Latest 10 sessions you have never joined, with live search |
+
+Unread message badges appear on sessions with new messages since you last viewed them.
 
 ### Session Data
 
-All CAS metadata lives in a hidden `.cas/` folder inside each project:
-
-```
-~/cas-projects/my-app/
-├── .cas/
-│   ├── session.json     ← session history
-│   └── uploads/         ← uploaded files
-├── main.go              ← clean source code
-└── .gitignore           ← .cas/ added automatically
-```
-
-The `.cas/` folder is automatically added to `.gitignore` on first write.
+Project files live in `CAS_PROJECTS_DIR`. Session history and messages are stored in PostgreSQL. Uploads live in a hidden `.cas/uploads/` folder inside the project (gitignored automatically).
 
 ### Changing the Working Directory
 
@@ -177,27 +212,55 @@ cp .claude/commands/cas-pull.md ~/.claude/commands/cas-pull.md
 
 ---
 
-## Admin
-
-Click **⚙** in the sidebar header to open the admin panel. It shows all sessions with their git health (uncommitted changes, unpushed commits) and allows permanent deletion with a confirmation step.
-
----
-
 ## Architecture
 
 ```
 browser (index.html)
-    │  WebSocket + HTTP
+    │  WebSocket + HTTP (authenticated via cas-user-id cookie)
     ▼
-main.go    ── HTTP routes, embedded static files, admin endpoints
-hub.go     ── WebSocket hub, client registry, broadcast (join/leave/tools/stream)
+main.go    ── HTTP routes, auth endpoints, admin, embedded static files
+hub.go     ── WebSocket hub, Redis pub/sub subscriber, join/leave broadcast
 session.go ── Session lifecycle, Claude API streaming, tool execution, git ops
+db.go      ── PostgreSQL: users, sessions, messages, membership, unread tracking
+redis.go   ── Redis connection and channel constants
+crypto.go  ── AES-256-GCM encryption/decryption for stored credentials
 ```
 
-- **Single binary** — static files are embedded at build time (`//go:embed static`). Rebuild with `go build` after any change
-- **Per-user Anthropic clients** — a fresh client is created per request using the user's own API key
-- **Per-user model selection** — model is chosen per user, sent with each message
-- **WebSocket per session** — `BroadcastAll` sends session-list updates to every connected client across all sessions
+- **Single binary** — static files are embedded at build time. Rebuild with `go build` after any change
+- **Per-user Anthropic clients** — a fresh client is created per request using the user's decrypted key from DB
+- **Messages lazy-loaded** — session metadata loads at startup; messages load from DB on first WS connection
+- **Redis pub/sub** — all WebSocket broadcasts go through Redis, enabling true multi-pod deployments
+
+---
+
+## Multi-Pod Deployment (K8s)
+
+```
+                 ┌──────────────────────┐
+                 │    Load Balancer      │
+                 └──────────┬───────────┘
+                            │
+         ┌──────────────────┼──────────────────┐
+         ▼                  ▼                  ▼
+    ┌─────────┐       ┌─────────┐       ┌─────────┐
+    │ CAS Pod │       │ CAS Pod │       │ CAS Pod │
+    └────┬────┘       └────┬────┘       └────┬────┘
+         │                 │                 │
+    ┌────▼─────────────────▼─────────────────▼────┐
+    │              PostgreSQL                      │
+    │  users · sessions · messages · membership   │
+    └─────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────┐
+    │              Redis                           │
+    │  WebSocket pub/sub across pods              │
+    └─────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────┐
+    │    Shared NFS / EFS (CAS_PROJECTS_DIR)       │
+    │    git repos · uploads · source files       │
+    └─────────────────────────────────────────────┘
+```
+
+Each pod connects to the same PostgreSQL and Redis on startup. WebSocket events published by any pod are received by all pods and forwarded to their local clients.
 
 ---
 
@@ -206,7 +269,11 @@ session.go ── Session lifecycle, Claude API streaming, tool execution, git o
 ```bash
 go build -o cas .
 
-CAS_PROJECTS_DIR=/home/user/projects ./cas --port 8080
+DATABASE_URL=postgresql://user:pass@db:5432/cas \
+CAS_SECRET=your-secret \
+REDIS_URL=redis://redis:6379 \
+CAS_PROJECTS_DIR=/mnt/efs/cas-projects \
+./cas --port 8080
 ```
 
-Point a reverse proxy (nginx, Caddy) at port 8080 to expose over HTTPS. HTTPS is strongly recommended since API keys transit between browser and server.
+Point a reverse proxy (nginx, Caddy) at port 8080 to expose over HTTPS. HTTPS is required in production — API keys transit between browser and server on initial setup.

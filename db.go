@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // DB is the global connection pool.
@@ -95,6 +97,8 @@ func ensureDatabase(ctx context.Context, url string) error {
 const schema = `
 CREATE TABLE IF NOT EXISTS users (
     id               TEXT PRIMARY KEY,
+    username         TEXT UNIQUE,
+    password_hash    TEXT,
     name             TEXT NOT NULL DEFAULT '',
     model            TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
     anthropic_key    TEXT,
@@ -102,6 +106,8 @@ CREATE TABLE IF NOT EXISTS users (
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (LOWER(username)) WHERE username IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS teams (
     id          TEXT PRIMARY KEY,
@@ -136,34 +142,64 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS messages_session_id_idx ON messages(session_id, created_at);
 
 CREATE TABLE IF NOT EXISTS session_members (
-    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    session_id  TEXT NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'joined',
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_id   TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'joined',
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_read_at TIMESTAMPTZ,
     PRIMARY KEY (user_id, session_id)
 );
 `
 
+const alterations = `
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_color TEXT NOT NULL DEFAULT '';
+ALTER TABLE session_members ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (LOWER(username)) WHERE username IS NOT NULL;
+UPDATE session_members SET last_read_at = updated_at WHERE last_read_at IS NULL;
+`
+
 func runMigrations(ctx context.Context) error {
-	_, err := DB.Exec(ctx, schema)
-	if err != nil {
+	if _, err := DB.Exec(ctx, schema); err != nil {
+		return err
+	}
+	if _, err := DB.Exec(ctx, alterations); err != nil {
 		return err
 	}
 	log.Printf("database schema ready")
+	return seedDefaultUser(ctx)
+}
+
+// seedDefaultUser creates a default CAS/CAS user if no registered users exist.
+// This ensures there is always a way to log in on a fresh install.
+func seedDefaultUser(ctx context.Context) error {
+	var count int
+	DB.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE password_hash IS NOT NULL`).Scan(&count)
+	if count > 0 {
+		return nil
+	}
+	_, err := RegisterUser(ctx, "", "CAS", "CAS", "CAS")
+	if err != nil {
+		return fmt.Errorf("failed to create default user: %w", err)
+	}
+	log.Printf("created default user: username=CAS password=CAS — change this after first login")
 	return nil
 }
 
 // UserProfile holds a user's persisted settings.
 type UserProfile struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	Model           string    `json:"model"`
-	AnthropicKeySet bool      `json:"anthropicKeySet"`
-	AnthropicKeyHint string   `json:"anthropicKeyHint"` // last 4 chars masked
-	GithubTokenSet  bool      `json:"githubTokenSet"`
-	GithubTokenHint string    `json:"githubTokenHint"`
-	CreatedAt       time.Time `json:"createdAt"`
-	LastSeen        time.Time `json:"lastSeen"`
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Model            string    `json:"model"`
+	Color            string    `json:"color"`
+	AnthropicKeySet  bool      `json:"anthropicKeySet"`
+	AnthropicKeyHint string    `json:"anthropicKeyHint"`
+	GithubTokenSet   bool      `json:"githubTokenSet"`
+	GithubTokenHint  string    `json:"githubTokenHint"`
+	CreatedAt        time.Time `json:"createdAt"`
+	LastSeen         time.Time `json:"lastSeen"`
 }
 
 // GetOrCreateUser loads a user profile by ID, creating it if it doesn't exist.
@@ -181,13 +217,13 @@ func GetOrCreateUser(ctx context.Context, userID string) (*UserProfile, error) {
 // GetUser loads a user profile including masked key hints.
 func GetUser(ctx context.Context, userID string) (*UserProfile, error) {
 	row := DB.QueryRow(ctx, `
-		SELECT id, name, model, anthropic_key, github_token, created_at, last_seen
+		SELECT id, name, model, color, anthropic_key, github_token, created_at, last_seen
 		FROM users WHERE id = $1
 	`, userID)
 
 	var p UserProfile
 	var anthropicKey, githubToken *string
-	err := row.Scan(&p.ID, &p.Name, &p.Model, &anthropicKey, &githubToken, &p.CreatedAt, &p.LastSeen)
+	err := row.Scan(&p.ID, &p.Name, &p.Model, &p.Color, &anthropicKey, &githubToken, &p.CreatedAt, &p.LastSeen)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -232,6 +268,19 @@ func UpdateUser(ctx context.Context, userID, name, model, anthropicKey, githubTo
 	_, err := DB.Exec(ctx, `
 		UPDATE users SET name = $1, model = $2, last_seen = NOW() WHERE id = $3
 	`, name, model, userID)
+	return err
+}
+
+// GetUserColor returns the user's chosen display colour.
+func GetUserColor(ctx context.Context, userID string) string {
+	var color string
+	DB.QueryRow(ctx, `SELECT color FROM users WHERE id = $1`, userID).Scan(&color)
+	return color
+}
+
+// UpdateUserColor saves the user's chosen display colour.
+func UpdateUserColor(ctx context.Context, userID, color string) error {
+	_, err := DB.Exec(ctx, `UPDATE users SET color = $1 WHERE id = $2`, color, userID)
 	return err
 }
 
@@ -282,12 +331,15 @@ func GetUserSessionStatuses(ctx context.Context, userID string) (map[string]stri
 }
 
 // SetUserSessionStatus upserts a session membership status for a user.
+// Always initialises last_read_at on first insert; preserves it on updates.
 func SetUserSessionStatus(ctx context.Context, userID, sessionID, status string) error {
 	_, err := DB.Exec(ctx, `
-		INSERT INTO session_members (user_id, session_id, status, updated_at)
-		VALUES ($1, $2, $3, NOW())
+		INSERT INTO session_members (user_id, session_id, status, last_read_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
 		ON CONFLICT (user_id, session_id) DO UPDATE
-		SET status = $3, updated_at = NOW()
+		SET status       = EXCLUDED.status,
+		    updated_at   = NOW(),
+		    last_read_at = COALESCE(session_members.last_read_at, NOW())
 	`, userID, sessionID, status)
 	return err
 }
@@ -313,14 +365,22 @@ func DBDeleteSession(ctx context.Context, id string) error {
 }
 
 type DBSession struct {
-	ID        string
-	Name      string
-	WorkDir   string
-	CreatedAt time.Time
+	ID           string
+	Name         string
+	WorkDir      string
+	CreatedAt    time.Time
+	MessageCount int
 }
 
 func DBListSessions(ctx context.Context) ([]DBSession, error) {
-	rows, err := DB.Query(ctx, `SELECT id, name, work_dir, created_at FROM sessions ORDER BY created_at ASC`)
+	rows, err := DB.Query(ctx, `
+		SELECT s.id, s.name, s.work_dir, s.created_at,
+		       COUNT(m.id) AS message_count
+		FROM sessions s
+		LEFT JOIN messages m ON m.session_id = s.id
+		GROUP BY s.id
+		ORDER BY s.created_at ASC
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +388,34 @@ func DBListSessions(ctx context.Context) ([]DBSession, error) {
 	var result []DBSession
 	for rows.Next() {
 		var s DBSession
-		if err := rows.Scan(&s.ID, &s.Name, &s.WorkDir, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.WorkDir, &s.CreatedAt, &s.MessageCount); err != nil {
+			return nil, err
+		}
+		result = append(result, s)
+	}
+	return result, nil
+}
+
+// DBSearchSessions returns sessions matching a name query, limited to recent ones.
+func DBSearchSessions(ctx context.Context, query string, limit int) ([]DBSession, error) {
+	rows, err := DB.Query(ctx, `
+		SELECT s.id, s.name, s.work_dir, s.created_at,
+		       COUNT(m.id) AS message_count
+		FROM sessions s
+		LEFT JOIN messages m ON m.session_id = s.id
+		WHERE s.name ILIKE '%' || $1 || '%'
+		GROUP BY s.id
+		ORDER BY s.created_at DESC
+		LIMIT $2
+	`, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []DBSession
+	for rows.Next() {
+		var s DBSession
+		if err := rows.Scan(&s.ID, &s.Name, &s.WorkDir, &s.CreatedAt, &s.MessageCount); err != nil {
 			return nil, err
 		}
 		result = append(result, s)
@@ -338,44 +425,47 @@ func DBListSessions(ctx context.Context) ([]DBSession, error) {
 
 // ── Message DB functions ──────────────────────────────────────────────────────
 
-func DBAddMessage(ctx context.Context, sessionID, id, role, content, sender string, createdAt interface{}) error {
+func DBAddMessage(ctx context.Context, sessionID, id, role, content, sender, senderColor string, createdAt interface{}) error {
 	_, err := DB.Exec(ctx,
-		`INSERT INTO messages (id, session_id, role, content, sender, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
-		id, sessionID, role, content, sender, createdAt)
+		`INSERT INTO messages (id, session_id, role, content, sender, sender_color, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+		id, sessionID, role, content, sender, senderColor, createdAt)
 	return err
 }
 
 func DBGetMessages(ctx context.Context, sessionID string) ([]struct {
-	ID        string
-	Role      string
-	Content   string
-	Sender    string
-	CreatedAt time.Time
+	ID          string
+	Role        string
+	Content     string
+	Sender      string
+	SenderColor string
+	CreatedAt   time.Time
 }, error) {
 	rows, err := DB.Query(ctx,
-		`SELECT id, role, content, sender, created_at FROM messages
+		`SELECT id, role, content, sender, sender_color, created_at FROM messages
 		 WHERE session_id = $1 ORDER BY created_at ASC`, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var result []struct {
-		ID        string
-		Role      string
-		Content   string
-		Sender    string
-		CreatedAt time.Time
+		ID          string
+		Role        string
+		Content     string
+		Sender      string
+		SenderColor string
+		CreatedAt   time.Time
 	}
 	for rows.Next() {
 		var m struct {
-			ID        string
-			Role      string
-			Content   string
-			Sender    string
-			CreatedAt time.Time
+			ID          string
+			Role        string
+			Content     string
+			Sender      string
+			SenderColor string
+			CreatedAt   time.Time
 		}
-		if err := rows.Scan(&m.ID, &m.Role, &m.Content, &m.Sender, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Role, &m.Content, &m.Sender, &m.SenderColor, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, m)
@@ -392,4 +482,112 @@ func DBGetMessageCount(ctx context.Context, sessionID string) (int, error) {
 	var count int
 	err := DB.QueryRow(ctx, `SELECT COUNT(*) FROM messages WHERE session_id = $1`, sessionID).Scan(&count)
 	return count, err
+}
+
+// MarkSessionRead records when a user last read a session.
+func MarkSessionRead(ctx context.Context, userID, sessionID string) error {
+	_, err := DB.Exec(ctx, `
+		INSERT INTO session_members (user_id, session_id, status, last_read_at, updated_at)
+		VALUES ($1, $2, 'joined', NOW(), NOW())
+		ON CONFLICT (user_id, session_id) DO UPDATE
+		SET last_read_at = NOW(), updated_at = NOW()
+	`, userID, sessionID)
+	return err
+}
+
+// GetUnreadCounts returns unread message counts per session for a user.
+// Only counts messages that arrived after the user last read the session.
+// If last_read_at is NULL (no baseline yet), unread = 0.
+func GetUnreadCounts(ctx context.Context, userID string) (map[string]int, error) {
+	rows, err := DB.Query(ctx, `
+		SELECT sm.session_id,
+		       COUNT(m.id) FILTER (
+		           WHERE sm.last_read_at IS NOT NULL
+		             AND m.created_at > sm.last_read_at
+		       ) AS unread
+		FROM session_members sm
+		LEFT JOIN messages m ON m.session_id = sm.session_id
+		WHERE sm.user_id = $1
+		GROUP BY sm.session_id
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]int)
+	for rows.Next() {
+		var sid string
+		var count int
+		if err := rows.Scan(&sid, &count); err != nil {
+			return nil, err
+		}
+		result[sid] = count
+	}
+	return result, nil
+}
+
+// ── Auth functions ────────────────────────────────────────────────────────────
+
+// RegisterUser sets a username and bcrypt password on an existing user (by cookie ID)
+// or creates a fresh user. Returns the user ID.
+func RegisterUser(ctx context.Context, existingID, username, displayName, password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+
+	// Check username not already taken.
+	var taken bool
+	DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(username) = LOWER($1))`, username).Scan(&taken)
+	if taken {
+		return "", fmt.Errorf("username %q is already taken", username)
+	}
+
+	if displayName == "" {
+		displayName = username
+	}
+
+	if existingID != "" {
+		// Link credentials to the existing cookie-based account.
+		_, err = DB.Exec(ctx, `
+			UPDATE users SET username = $1, password_hash = $2, name = $3 WHERE id = $4
+		`, username, string(hash), displayName, existingID)
+		return existingID, err
+	}
+
+	// Create a new user.
+	id := uuid.New().String()
+	_, err = DB.Exec(ctx, `
+		INSERT INTO users (id, username, password_hash, name)
+		VALUES ($1, $2, $3, $4)
+	`, id, username, string(hash), displayName)
+	return id, err
+}
+
+// AuthenticateUser verifies a username/password and returns the user ID if valid.
+func AuthenticateUser(ctx context.Context, username, password string) (string, error) {
+	var id, hash string
+	err := DB.QueryRow(ctx, `
+		SELECT id, password_hash FROM users
+		WHERE LOWER(username) = LOWER($1) AND password_hash IS NOT NULL
+	`, username).Scan(&id, &hash)
+	if err == pgx.ErrNoRows {
+		return "", fmt.Errorf("invalid username or password")
+	}
+	if err != nil {
+		return "", err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+		return "", fmt.Errorf("invalid username or password")
+	}
+	// Update last_seen.
+	DB.Exec(ctx, `UPDATE users SET last_seen = NOW() WHERE id = $1`, id)
+	return id, nil
+}
+
+// UserHasPassword returns true if the user has set up a username/password.
+func UserHasPassword(ctx context.Context, userID string) bool {
+	var has bool
+	DB.QueryRow(ctx, `SELECT password_hash IS NOT NULL FROM users WHERE id = $1`, userID).Scan(&has)
+	return has
 }

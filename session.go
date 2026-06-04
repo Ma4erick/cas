@@ -25,23 +25,26 @@ import (
 // ---------------------------------------------------------------------------
 
 type Message struct {
-	ID        string    `json:"id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	Sender    string    `json:"sender,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
+	ID          string    `json:"id"`
+	Role        string    `json:"role"`
+	Content     string    `json:"content"`
+	Sender      string    `json:"sender,omitempty"`
+	SenderColor string    `json:"senderColor,omitempty"`
+	Timestamp   time.Time `json:"timestamp"`
 }
 
 type Session struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	WorkDir   string    `json:"workDir"`
-	Messages  []Message `json:"messages"`
-	CreatedAt time.Time `json:"createdAt"`
-	mu           sync.RWMutex
-	streaming    bool
-	cloning      bool
-	cancelStream context.CancelFunc
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	WorkDir      string    `json:"workDir"`
+	Messages     []Message `json:"messages"`
+	CreatedAt    time.Time `json:"createdAt"`
+	MessageCount int       `json:"messageCount,omitempty"` // cached count from DB
+	mu             sync.RWMutex
+	streaming      bool
+	cloning        bool
+	messagesLoaded bool
+	cancelStream   context.CancelFunc
 }
 
 func (s *Session) AddMessage(msg Message) {
@@ -82,6 +85,7 @@ type SessionSummary struct {
 	WorkDir      string    `json:"workDir"`
 	CreatedAt    time.Time `json:"createdAt"`
 	MessageCount int       `json:"messageCount"`
+	UnreadCount  int       `json:"unreadCount"`
 }
 
 // ---------------------------------------------------------------------------
@@ -205,8 +209,13 @@ func (sm *SessionManager) saveToDisk(session *Session) {
 // persistMessage writes a message to DB (or falls back to re-saving the whole session).
 func (sm *SessionManager) persistMessage(session *Session, msg Message) {
 	if DB != nil {
-		if err := DBAddMessage(context.Background(), session.ID, msg.ID, msg.Role, msg.Content, msg.Sender, msg.Timestamp); err != nil {
+		logVerbose("db write: message %s in session %s (role=%s)", msg.ID, session.ID, msg.Role)
+		if err := DBAddMessage(context.Background(), session.ID, msg.ID, msg.Role, msg.Content, msg.Sender, msg.SenderColor, msg.Timestamp); err != nil {
 			log.Printf("failed to persist message %s: %v", msg.ID, err)
+		}
+		// Mark session as read for all users currently connected to it.
+		for _, uid := range sm.hub.ActiveUserIDs(session.ID) {
+			MarkSessionRead(context.Background(), uid, session.ID)
 		}
 		return
 	}
@@ -223,26 +232,20 @@ func (sm *SessionManager) loadSessions() {
 
 func (sm *SessionManager) loadFromDB() {
 	ctx := context.Background()
+	// Load metadata only — messages are lazy loaded when a user opens a session.
 	dbSessions, err := DBListSessions(ctx)
 	if err != nil {
 		log.Printf("failed to load sessions from DB: %v", err)
 		return
 	}
 	for _, ds := range dbSessions {
-		msgs, err := DBGetMessages(ctx, ds.ID)
-		if err != nil {
-			log.Printf("failed to load messages for session %s: %v", ds.ID, err)
-		}
-		messages := make([]Message, 0, len(msgs))
-		for _, m := range msgs {
-			messages = append(messages, Message{
-				ID: m.ID, Role: m.Role, Content: m.Content,
-				Sender: m.Sender, Timestamp: m.CreatedAt,
-			})
-		}
 		sm.sessions[ds.ID] = &Session{
-			ID: ds.ID, Name: ds.Name, WorkDir: ds.WorkDir,
-			Messages: messages, CreatedAt: ds.CreatedAt,
+			ID:           ds.ID,
+			Name:         ds.Name,
+			WorkDir:      ds.WorkDir,
+			CreatedAt:    ds.CreatedAt,
+			MessageCount: ds.MessageCount,
+			Messages:     nil, // loaded on demand
 		}
 	}
 
@@ -271,7 +274,7 @@ func (sm *SessionManager) loadFromDB() {
 		// Migrate to DB
 		if err := DBCreateSession(ctx, s.ID, s.Name, s.WorkDir, s.CreatedAt); err == nil {
 			for _, m := range s.Messages {
-				DBAddMessage(ctx, s.ID, m.ID, m.Role, m.Content, m.Sender, m.Timestamp)
+				DBAddMessage(ctx, s.ID, m.ID, m.Role, m.Content, m.Sender, m.SenderColor, m.Timestamp)
 			}
 			sm.sessions[s.ID] = &s
 			migrated++
@@ -355,12 +358,16 @@ func (sm *SessionManager) sessionList() []SessionSummary {
 	list := make([]SessionSummary, 0, len(sm.sessions))
 	for _, s := range sm.sessions {
 		s.mu.RLock()
+		count := s.MessageCount
+		if s.messagesLoaded {
+			count = len(s.Messages)
+		}
 		list = append(list, SessionSummary{
 			ID:           s.ID,
 			Name:         s.Name,
 			WorkDir:      s.WorkDir,
 			CreatedAt:    s.CreatedAt,
-			MessageCount: len(s.Messages),
+			MessageCount: count,
 		})
 		s.mu.RUnlock()
 	}
@@ -823,6 +830,18 @@ func (sm *SessionManager) ListSessions(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(sm.sessionList())
 }
 
+func (sm *SessionManager) ListSessionsWithUnread(w http.ResponseWriter, r *http.Request, unread map[string]int) {
+	sm.pruneDeletedSessions()
+	list := sm.sessionList()
+	for i, s := range list {
+		if n, ok := unread[s.ID]; ok {
+			list[i].UnreadCount = n
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(list)
+}
+
 const maxUploadSize = 10 << 20 // 10 MB
 
 var allowedUploadTypes = map[string]string{
@@ -1059,12 +1078,20 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 		return
 	}
 
+	senderColor := ""
+	if DB != nil {
+		if uid := userIDFromRequest(r); uid != "" {
+			senderColor = GetUserColor(r.Context(), uid)
+		}
+	}
+
 	userMsg := Message{
-		ID:        uuid.New().String(),
-		Role:      "user",
-		Content:   req.Content,
-		Sender:    req.Sender,
-		Timestamp: time.Now(),
+		ID:          uuid.New().String(),
+		Role:        "user",
+		Content:     req.Content,
+		Sender:      req.Sender,
+		SenderColor: senderColor,
+		Timestamp:   time.Now(),
 	}
 	session.AddMessage(userMsg)
 	sm.persistMessage(session, userMsg)

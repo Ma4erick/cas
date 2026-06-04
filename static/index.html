@@ -56,13 +56,12 @@
 
   #sidebar-brand {
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
+    flex-direction: column;
+    gap: 2px;
     padding: 0 4px;
+    flex: 1;
+    min-width: 0;
   }
-  #sidebar-brand #brand-name { flex: none; }
-  #sidebar-brand #brand-tagline { display: none; }
 
   #brand-name {
     font-size: 17px;
@@ -364,11 +363,15 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text);
-    padding: 7px 10px;
+    padding: 7px 28px 7px 10px;
     font-size: 13px;
     font-family: inherit;
     outline: none;
     cursor: pointer;
+    appearance: auto;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
   }
   .profile-field select:focus { border-color: var(--accent); }
 
@@ -482,7 +485,6 @@
 
   .msg-meta .sender {
     font-weight: 700;
-    color: var(--text);
     font-size: 15px;
   }
 
@@ -491,6 +493,8 @@
     word-break: break-word;
     color: var(--text);
     font-weight: 400;
+    padding-left: 16px;
+    border-left: 2px solid rgba(255,255,255,0.06);
   }
 
   .msg-bubble p { margin: 0 0 6px; }
@@ -847,6 +851,65 @@
   .btn-primary { background: var(--accent); color: #fff; }
   .btn-ghost { background: var(--input-bg); color: var(--text); }
 
+  /* Login modal */
+  #login-overlay {
+    position: fixed; inset: 0;
+    background: var(--main-bg);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+  }
+  #login-overlay.open { display: flex; }
+
+  #login-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 36px 32px 28px;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    text-align: center;
+  }
+
+  #login-logo {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto;
+    display: block;
+  }
+
+  #login-modal h2 { font-size: 20px; font-weight: 700; }
+  #login-desc { font-size: 13px; color: var(--text-muted); margin-top: -8px; }
+
+  .login-field { text-align: left; margin-top: 16px; }
+  .login-field:first-of-type { margin-top: 0; }
+  .login-field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .login-field input {
+    width: 100%;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 9px 12px;
+    font-size: 14px;
+    outline: none;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+  .login-field input:focus { border-color: var(--accent); }
+
   /* Admin gear button */
   #admin-btn {
     background: none;
@@ -987,6 +1050,44 @@
   }
   #admin-confirm-check { flex-shrink: 0; margin-top: 2px; }
 
+  /* @mention autocomplete */
+  #mention-dropdown {
+    display: none;
+    position: absolute;
+    bottom: 100%;
+    left: 24px;
+    right: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.4);
+    z-index: 150;
+    overflow: hidden;
+    margin-bottom: 4px;
+  }
+  #mention-dropdown.open { display: block; }
+
+  .mention-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.1s;
+  }
+  .mention-item:hover, .mention-item.selected { background: var(--sidebar-hover); }
+  .mention-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .mention-avatar img { width: 100%; height: 100%; display: block; }
+  .mention-name { font-weight: 600; }
+  .mention-match { color: var(--accent); }
+
   /* Emoji picker */
   #emoji-btn, #upload-btn {
     background: none;
@@ -1070,9 +1171,11 @@
 
 <div id="sidebar">
   <div id="sidebar-top">
-    <div id="sidebar-brand">
-      <span id="brand-name">CAS</span>
-      <span id="brand-tagline">Collaborative agent sessions</span>
+    <div style="display:flex;align-items:flex-start;gap:6px;">
+      <div id="sidebar-brand">
+        <span id="brand-name">CAS</span>
+        <span id="brand-tagline">Collaborative agent sessions</span>
+      </div>
       <button id="admin-btn" title="Admin — manage sessions">⚙</button>
     </div>
     <button id="new-session-btn">
@@ -1107,6 +1210,7 @@
   </div>
 
   <div id="input-area" style="position:relative;">
+    <div id="mention-dropdown"></div>
     <div id="emoji-picker">
       <input id="emoji-search" type="text" placeholder="Search emojis…">
       <div id="emoji-scroll"></div>
@@ -1123,6 +1227,56 @@
   </div>
 </div>
 
+<div id="login-overlay">
+  <div id="login-modal">
+    <img src="/avatar.png" alt="CAS" id="login-logo">
+    <h2 id="login-title">Sign in to CAS</h2>
+    <p id="login-desc">Collaborative Agent Sessions</p>
+
+    <!-- Login form -->
+    <div id="login-form">
+      <div class="login-field">
+        <label>Username</label>
+        <input id="login-username" type="text" placeholder="your username" autocomplete="username">
+      </div>
+      <div class="login-field">
+        <label>Password</label>
+        <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <div id="login-error" style="color:var(--danger);font-size:13px;display:none;margin-top:12px;"></div>
+      <button id="login-btn" class="btn btn-primary" style="width:100%;padding:10px;margin-top:20px;">Sign in</button>
+      <p style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:12px;">
+        Don't have an account? <a href="#" id="show-register" style="color:var(--accent);">Register</a>
+      </p>
+    </div>
+
+    <!-- Register form -->
+    <div id="register-form" style="display:none;">
+      <div class="login-field">
+        <label>Username</label>
+        <input id="reg-username" type="text" placeholder="choose a username" autocomplete="username">
+      </div>
+      <div class="login-field">
+        <label>Display name <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+        <input id="reg-displayname" type="text" placeholder="e.g. London Summers" autocomplete="name">
+      </div>
+      <div class="login-field">
+        <label>Password <span style="color:var(--text-muted);font-weight:400;">(min 8 chars)</span></label>
+        <input id="reg-password" type="password" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <div class="login-field">
+        <label>Confirm password</label>
+        <input id="reg-confirm" type="password" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <div id="reg-error" style="color:var(--danger);font-size:13px;display:none;"></div>
+      <button id="reg-btn" class="btn btn-primary" style="width:100%;padding:10px;margin-top:4px;">Create account</button>
+      <p style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:12px;">
+        Already have an account? <a href="#" id="show-login" style="color:var(--accent);">Sign in</a>
+      </p>
+    </div>
+  </div>
+</div>
+
 <div id="profile-overlay">
   <div id="profile-modal">
     <div id="profile-header">
@@ -1133,12 +1287,19 @@
       </div>
     </div>
     <div class="profile-field">
+      <label>Your colour</label>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="color" id="profile-color" style="width:40px;height:32px;border:1px solid var(--border);border-radius:6px;background:none;cursor:pointer;padding:2px;">
+        <span id="profile-color-label" style="font-size:12px;color:var(--text-muted);">Used to identify your messages</span>
+      </div>
+    </div>
+    <div class="profile-field">
       <label>Model</label>
       <select id="profile-model">
-        <option value="claude-sonnet-4-6">Claude Sonnet (claude-sonnet-4-6) — Recommended</option>
-        <option value="claude-opus-4-8">Claude Opus 4 (claude-opus-4-8) — Most capable</option>
-        <option value="claude-opus-4-6">Claude Opus 4 (claude-opus-4-6)</option>
-        <option value="claude-haiku-4-5">Claude Haiku (claude-haiku-4-5) — Fastest</option>
+        <option value="claude-sonnet-4-6">Sonnet 4.6 — Recommended</option>
+        <option value="claude-opus-4-8">Opus 4.8 — Most capable</option>
+        <option value="claude-opus-4-6">Opus 4.6</option>
+        <option value="claude-haiku-4-5">Haiku 4.5 — Fastest</option>
       </select>
     </div>
     <div class="profile-field">
@@ -1152,7 +1313,7 @@
     <div style="display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border);">
       <button id="profile-save" class="btn btn-primary" style="flex:1;">Save</button>
     </div>
-    <button id="profile-logout">↩ Sign out &amp; clear all settings</button>
+    <button id="profile-logout">↩ Sign out</button>
   </div>
 </div>
 
@@ -1260,8 +1421,10 @@ const profileOverlay = document.getElementById('profile-overlay');
 const profileAvatarLg = document.getElementById('profile-avatar-lg');
 const profileName    = document.getElementById('profile-name');
 const profileModel     = document.getElementById('profile-model');
+const profileColor     = document.getElementById('profile-color');
+const profileColorLabel = document.getElementById('profile-color-label');
 const profileAnthropic = document.getElementById('profile-anthropic');
-const profileGithub  = document.getElementById('profile-github');
+const profileGithub    = document.getElementById('profile-github');
 const anthropicStatus = document.getElementById('anthropic-status');
 const githubStatus   = document.getElementById('github-status');
 const profileLogout  = document.getElementById('profile-logout');
@@ -1269,7 +1432,12 @@ const profileLogout  = document.getElementById('profile-logout');
 // Unread tracking — persisted in localStorage per session.
 function getReadCount(id) { return parseInt(localStorage.getItem('cas-read-' + id) || '0', 10); }
 function setReadCount(id, n) { localStorage.setItem('cas-read-' + id, n); }
-function unreadCount(s) { return Math.max(0, (s.messageCount || 0) - getReadCount(s.id)); }
+function unreadCount(s) {
+  // Server always provides unreadCount when DB is available.
+  // Only fall back to localStorage if the field is missing entirely (no DB mode).
+  if ('unreadCount' in s) return s.unreadCount;
+  return Math.max(0, (s.messageCount || 0) - getReadCount(s.id));
+}
 
 // Sessions announced this page load (in-memory — resets on refresh).
 const announcedSessions = new Set();
@@ -1327,6 +1495,118 @@ senderName.addEventListener('input', () => {
   localStorage.setItem('cas-sender-name', senderName.value);
   updateAvatar();
 });
+
+// ── Login modal ──────────────────────────────────────────────────────────────
+// ── Login / Register ─────────────────────────────────────────────────────────
+const loginOverlay  = document.getElementById('login-overlay');
+const loginForm     = document.getElementById('login-form');
+const registerForm  = document.getElementById('register-form');
+const loginUsername = document.getElementById('login-username');
+const loginPassword = document.getElementById('login-password');
+const loginError    = document.getElementById('login-error');
+const loginBtn      = document.getElementById('login-btn');
+const showRegister  = document.getElementById('show-register');
+const regUsername   = document.getElementById('reg-username');
+const regDisplayname = document.getElementById('reg-displayname');
+const regPassword   = document.getElementById('reg-password');
+const regConfirm    = document.getElementById('reg-confirm');
+const regError      = document.getElementById('reg-error');
+const regBtn        = document.getElementById('reg-btn');
+const showLoginLink = document.getElementById('show-login');
+
+function showLogin() {
+  loginOverlay.classList.add('open');
+  loginForm.style.display = '';
+  registerForm.style.display = 'none';
+  document.getElementById('login-title').textContent = 'Sign in to CAS';
+  loginError.style.display = 'none';
+  loginUsername.focus();
+}
+function hideLogin() { loginOverlay.classList.remove('open'); }
+
+showRegister.addEventListener('click', e => {
+  e.preventDefault();
+  loginForm.style.display = 'none';
+  registerForm.style.display = '';
+  document.getElementById('login-title').textContent = 'Create account';
+  regError.style.display = 'none';
+  regUsername.focus();
+});
+
+showLoginLink.addEventListener('click', e => {
+  e.preventDefault();
+  showLogin();
+});
+
+async function onLoginSuccess(profile) {
+  serverProfile = profile;
+  senderName.value = profile.name || profile.username || '';
+  localStorage.setItem('cas-sender-name', senderName.value);
+  updateAvatar();
+  hideLogin();
+  await loadProfile();
+  loadSessions();
+}
+
+loginBtn.addEventListener('click', async () => {
+  const username = loginUsername.value.trim();
+  const password = loginPassword.value;
+  if (!username || !password) { loginUsername.focus(); return; }
+  loginError.style.display = 'none';
+  loginBtn.disabled = true;
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      loginError.textContent = await res.text();
+      loginError.style.display = 'block';
+      return;
+    }
+    onLoginSuccess(await res.json());
+  } finally {
+    loginBtn.disabled = false;
+  }
+});
+
+regBtn.addEventListener('click', async () => {
+  const username    = regUsername.value.trim();
+  const displayName = regDisplayname.value.trim();
+  const password    = regPassword.value;
+  const confirm     = regConfirm.value;
+  regError.style.display = 'none';
+  if (!username || !password) { regUsername.focus(); return; }
+  if (password !== confirm) {
+    regError.textContent = 'Passwords do not match.';
+    regError.style.display = 'block';
+    return;
+  }
+  regBtn.disabled = true;
+  try {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, displayName, password }),
+    });
+    if (!res.ok) {
+      regError.textContent = await res.text();
+      regError.style.display = 'block';
+      return;
+    }
+    onLoginSuccess(await res.json());
+  } finally {
+    regBtn.disabled = false;
+  }
+});
+
+loginUsername.addEventListener('keydown', e => { if (e.key === 'Enter') loginPassword.focus(); });
+loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') loginBtn.click(); });
+regUsername.addEventListener('keydown',   e => { if (e.key === 'Enter') regDisplayname.focus(); });
+regDisplayname.addEventListener('keydown',e => { if (e.key === 'Enter') regPassword.focus(); });
+regPassword.addEventListener('keydown',   e => { if (e.key === 'Enter') regConfirm.focus(); });
+regConfirm.addEventListener('keydown',    e => { if (e.key === 'Enter') regBtn.click(); });
 
 // ── Profile (server-backed when DB available, localStorage fallback) ─────────
 let serverProfile = null;
@@ -1392,6 +1672,7 @@ function openProfile() {
   if (serverProfile) {
     profileName.value = serverProfile.name || '';
     profileModel.value = serverProfile.model || localStorage.getItem('cas-model') || 'claude-sonnet-4-6';
+    profileColor.value = serverProfile.color || senderColour(serverProfile.name || 'User', false);
     profileAnthropic.value = '';
     profileGithub.value = '';
     profileAnthropic.placeholder = serverProfile.anthropicKeySet
@@ -1427,6 +1708,26 @@ profileModel.addEventListener('change', () => {
   localStorage.setItem('cas-model', profileModel.value);
 });
 
+profileColor.addEventListener('input', () => {
+  const color = profileColor.value;
+  localStorage.setItem('cas-color', color);
+
+  // Update only the current user's sender spans — other users stay white.
+  const myName = (serverProfile && serverProfile.name) || localStorage.getItem('cas-sender-name') || '';
+  document.querySelectorAll('.msg-meta .sender').forEach(el => {
+    if (el.textContent === myName) el.style.color = color;
+  });
+
+  if (serverProfile) {
+    serverProfile.color = color;
+    fetch('/api/profile/color', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ color }),
+    });
+  }
+});
+
 profileAnthropic.addEventListener('input', () => {
   if (!serverProfile) {
     localStorage.setItem('cas-anthropic-key', profileAnthropic.value.trim());
@@ -1454,12 +1755,10 @@ document.getElementById('profile-save').addEventListener('click', async () => {
   closeProfile();
 });
 
-profileLogout.addEventListener('click', () => {
-  if (!confirm('Sign out? This will clear your profile from this browser.')) return;
+profileLogout.addEventListener('click', async () => {
   Object.keys(localStorage).filter(k => k.startsWith('cas-')).forEach(k => localStorage.removeItem(k));
-  document.cookie = 'cas-user-id=; Max-Age=0; path=/';
-  serverProfile = null;
-  closeProfile();
+  document.cookie = 'cas-user-id=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC';
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
   location.reload();
 });
 
@@ -1472,7 +1771,8 @@ messageInput.addEventListener('input', () => {
 messageInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    send();
+    // Don't send if the mention dropdown is handling the Enter key.
+    if (!mentionDropdown.classList.contains('open')) send();
   }
 });
 
@@ -1688,10 +1988,49 @@ function renderSessionList() {
     for (const s of recentSessions) sessionList.appendChild(makeSessionItem(s, true));
   }
 
-  // Discover
-  if (discoverSessions.length > 0) {
+  // Discover — last 10 by createdAt, plus a search input
+  if (discoverSessions.length > 0 || state.sessions.some(s => !joined.has(s.id) && !left.has(s.id))) {
     addSectionLabel('Discover', recentSessions.length > 0 || mySessions.length > 0, false);
-    for (const s of discoverSessions) sessionList.appendChild(makeSessionItem(s, true));
+
+    // Search box
+    const searchWrap = document.createElement('div');
+    searchWrap.style.cssText = 'padding:4px 8px;';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search sessions…';
+    searchInput.style.cssText = 'width:100%;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;outline:none;font-family:inherit;box-sizing:border-box;';
+    searchWrap.appendChild(searchInput);
+    sessionList.appendChild(searchWrap);
+
+    const discoverList = document.createElement('div');
+    sessionList.appendChild(discoverList);
+
+    const renderDiscover = (sessions) => {
+      discoverList.innerHTML = '';
+      if (sessions.length === 0) {
+        discoverList.innerHTML = '<div style="padding:6px 12px;color:var(--text-muted);font-size:12px;">No sessions found</div>';
+        return;
+      }
+      for (const s of sessions.slice(0, 10)) discoverList.appendChild(makeSessionItem(s, true));
+    };
+
+    renderDiscover(discoverSessions);
+
+    let searchTimer;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(async () => {
+        const q = searchInput.value.trim();
+        if (!q) { renderDiscover(discoverSessions); return; }
+        try {
+          const res = await fetch(`/api/sessions/search?q=${encodeURIComponent(q)}`);
+          const results = await res.json();
+          // Filter to only unjoined, not-left sessions.
+          const filtered = (results || []).filter(s => !joined.has(s.id) && !left.has(s.id));
+          renderDiscover(filtered);
+        } catch { renderDiscover(discoverSessions); }
+      }, 300);
+    });
   }
 }
 
@@ -1791,14 +2130,17 @@ function handleWS(msg) {
       break;
 
     case 'session_list':
-      state.sessions = msg.sessions || [];
-      renderSessionList();
+      // Update message counts from WS immediately, then refresh via HTTP for unread counts.
+      if (msg.sessions) {
+        msg.sessions.forEach(ws => {
+          const s = state.sessions.find(s => s.id === ws.id);
+          if (s) s.messageCount = ws.messageCount;
+        });
+      }
+      loadSessions(); // full HTTP refresh for per-user unread counts
       const active = state.sessions.find(s => s.id === state.activeSessionID);
       if (active) {
         sessionMeta.textContent = `${active.messageCount} messages`;
-        // Auto-mark active session as read when count updates.
-        setReadCount(active.id, active.messageCount || 0);
-        renderSessionList();
       } else if (state.activeSessionID) {
         // Active session was deleted server-side — clear the UI.
         if (state.ws) { state.ws.close(); state.ws = null; }
@@ -1874,6 +2216,31 @@ function filePreviewHtml(content, sessionID) {
   </div>`;
 }
 
+// Consistent colour per username — hashed so the same name always gets the same colour.
+const USER_COLOURS = [
+  '#60a5fa', // blue
+  '#34d399', // green
+  '#f472b6', // pink
+  '#fb923c', // orange
+  '#a78bfa', // violet
+  '#38bdf8', // sky
+  '#facc15', // yellow
+  '#4ade80', // lime
+  '#f87171', // red
+  '#818cf8', // indigo
+];
+const AGENT_COLOUR = '#ffffff'; // white — same as other users
+
+function senderColour(name, isAgent) {
+  if (isAgent) return AGENT_COLOUR;
+  // Only colour the current user's own name — everyone else gets white.
+  const myName = (serverProfile && serverProfile.name) || localStorage.getItem('cas-sender-name') || '';
+  if (name === myName) {
+    return (serverProfile && serverProfile.color) || localStorage.getItem('cas-color') || '#60a5fa';
+  }
+  return '#ffffff';
+}
+
 function appendMessage(msg) {
   const isUser = msg.role === 'user';
   const group = document.createElement('div');
@@ -1898,9 +2265,10 @@ function appendMessage(msg) {
   const isOwn = isUser && (msg.sender === (senderName.value.trim() || 'Anonymous'));
   const deletable = isOwn && (isCallout || isUpload);
 
+  const colour = senderColour(sender, !isUser);
   group.innerHTML = `
     <div class="msg-meta">
-      <span class="sender">${escHtml(sender)}</span>
+      <span class="sender" style="color:${colour}">${escHtml(sender)}</span>
       <span>${time}</span>
     </div>
     <div class="msg-bubble${isCallout ? ' callout' : ''}">${contentHtml}</div>
@@ -1922,7 +2290,7 @@ function appendStreamingMessage(id) {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   group.innerHTML = `
     <div class="msg-meta">
-      <span class="sender">${state.agentName}</span>
+      <span class="sender" style="color:${AGENT_COLOUR}">${state.agentName}</span>
       <span>${time}</span>
     </div>
     <div class="msg-bubble" id="bubble-${id}"><span class="streaming-cursor"></span></div>
@@ -1955,7 +2323,8 @@ async function send() {
   const content = messageInput.value.trim();
   if (!content || !state.activeSessionID || state.streaming) return;
 
-  if (!localStorage.getItem('cas-anthropic-key')) {
+  const keyAvailable = (serverProfile && serverProfile.anthropicKeySet) || localStorage.getItem('cas-anthropic-key');
+  if (!keyAvailable) {
     showError('No Anthropic API key set. Click ⚙ next to your name to add it.');
     openProfile();
     profileAnthropic.focus();
@@ -2096,6 +2465,106 @@ function deleteSession(id) {
     sendBtn.disabled = true;
   }
 }
+
+// ── @mention autocomplete ────────────────────────────────────────────────────
+const mentionDropdown = document.getElementById('mention-dropdown');
+let mentionQuery = null;      // current @query string, null when not active
+let mentionStart = -1;        // caret position of the @ character
+let mentionSelected = -1;     // currently highlighted item index
+let mentionResults = [];      // current list of names
+let mentionTimer = null;
+
+function showMentionDropdown(names, query) {
+  mentionResults = names;
+  mentionSelected = -1;
+  mentionDropdown.innerHTML = '';
+  if (!names.length) { hideMentionDropdown(); return; }
+  names.forEach((name, i) => {
+    const item = document.createElement('div');
+    item.className = 'mention-item';
+    const hi = query ? name.replace(new RegExp(`(${query})`, 'gi'), '<span class="mention-match">$1</span>') : name;
+    item.innerHTML = `
+      <div class="mention-avatar"><img src="/avatar.png" alt="${escHtml(name)}"></div>
+      <span class="mention-name">${hi}</span>
+    `;
+    item.addEventListener('mousedown', e => { e.preventDefault(); insertMention(name); });
+    item.addEventListener('mouseover', () => { mentionSelected = i; updateMentionHighlight(); });
+    mentionDropdown.appendChild(item);
+  });
+  mentionDropdown.classList.add('open');
+}
+
+function hideMentionDropdown() {
+  mentionDropdown.classList.remove('open');
+  mentionDropdown.innerHTML = '';
+  mentionQuery = null;
+  mentionStart = -1;
+  mentionSelected = -1;
+  mentionResults = [];
+}
+
+function updateMentionHighlight() {
+  mentionDropdown.querySelectorAll('.mention-item').forEach((el, i) => {
+    el.classList.toggle('selected', i === mentionSelected);
+  });
+}
+
+function insertMention(name) {
+  const val = messageInput.value;
+  const before = val.slice(0, mentionStart);
+  const after  = val.slice(messageInput.selectionStart);
+  messageInput.value = before + '@' + name + ' ' + after;
+  const pos = mentionStart + name.length + 2;
+  messageInput.setSelectionRange(pos, pos);
+  messageInput.focus();
+  hideMentionDropdown();
+}
+
+async function fetchMentions(query) {
+  try {
+    const res = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+    const names = await res.json();
+    if (mentionQuery === query) showMentionDropdown(names || [], query);
+  } catch { hideMentionDropdown(); }
+}
+
+messageInput.addEventListener('keydown', e => {
+  if (!mentionDropdown.classList.contains('open')) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    mentionSelected = Math.min(mentionSelected + 1, mentionResults.length - 1);
+    updateMentionHighlight();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    mentionSelected = Math.max(mentionSelected - 1, 0);
+    updateMentionHighlight();
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    if (mentionSelected >= 0 && mentionResults[mentionSelected]) {
+      e.preventDefault();
+      insertMention(mentionResults[mentionSelected]);
+    }
+  } else if (e.key === 'Escape') {
+    hideMentionDropdown();
+  }
+});
+
+messageInput.addEventListener('input', () => {
+  const val = messageInput.value;
+  const caret = messageInput.selectionStart;
+  // Find the nearest @ before the caret with no spaces after it.
+  const slice = val.slice(0, caret);
+  const match = slice.match(/@(\w*)$/);
+  if (match) {
+    mentionStart = slice.lastIndexOf('@');
+    mentionQuery = match[1];
+    clearTimeout(mentionTimer);
+    mentionTimer = setTimeout(() => fetchMentions(mentionQuery), 150);
+  } else {
+    hideMentionDropdown();
+  }
+});
+
+messageInput.addEventListener('blur', () => setTimeout(hideMentionDropdown, 150));
 
 // ── File Upload ─────────────────────────────────────────────────────────────
 const uploadBtn  = document.getElementById('upload-btn');
@@ -2337,7 +2806,14 @@ function closeAdminPanel() {
 
 // Init
 fetch('/api/config').then(r => r.json()).then(cfg => { state.agentName = cfg.model || 'Agent'; });
-loadProfile().then(() => loadSessions());
+loadProfile().then(() => {
+  const name = localStorage.getItem('cas-sender-name') || (serverProfile && serverProfile.name) || '';
+  if (!name) {
+    showLogin();
+  } else {
+    loadSessions();
+  }
+});
 setInterval(loadSessions, 5000);
 </script>
 </body>
