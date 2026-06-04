@@ -55,6 +55,9 @@ Each user authenticates with their own username and password. API keys are store
 - **Admin panel** — Session management with git health checks (uncommitted/unpushed) and safe deletion with confirmation
 - **Stop agent** — Cancel a running agent response mid-stream
 - **Session search** — Search all sessions in the Discover section by name
+- **Session compaction** — Type `/compact` to summarise the full session history with Claude, replacing old messages with a structured summary + last 5 messages. Saves tokens and keeps context relevant for long-running sessions
+- **Compact reminder** — An amber banner appears when opening a session with 50+ messages or one inactive for more than a day, suggesting `/compact`
+- **Date separators** — The first message of each day shows a styled date pill (Today / Yesterday / full date), using each user's local timezone
 - **Multi-pod ready** — Redis pub/sub broadcasts WebSocket events across all pod instances
 - **Claude Code integration** — `/cas` and `/cas-pull` slash commands (with authentication) to push and pull context between a local Claude Code session and CAS
 

@@ -652,6 +652,68 @@
     background: #fff;
   }
 
+  /* Compact reminder banner */
+  #compact-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 8px 0;
+    font-size: 13px;
+    color: #f59e0b;
+    line-height: 1.4;
+  }
+  #compact-banner code {
+    background: rgba(245,158,11,0.15);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+  }
+  #compact-banner button {
+    background: none;
+    border: none;
+    color: #f59e0b;
+    cursor: pointer;
+    opacity: 0.6;
+    font-size: 14px;
+    flex-shrink: 0;
+    padding: 0 4px;
+    transition: opacity 0.15s;
+  }
+  #compact-banner button:hover { opacity: 1; }
+
+  /* Date separators */
+  .date-separator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 0 6px;
+  }
+  .date-separator::before,
+  .date-separator::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .date-separator span {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 3px 12px;
+    white-space: nowrap;
+  }
+
   /* System notices — join/leave/dir-change events */
   .system-notice {
     text-align: center;
@@ -2079,7 +2141,7 @@ function selectSession(id) {
 
   state.streaming = false;
   state.streamBuffer = '';
-  messages.innerHTML = '';
+  messages.innerHTML = ''; resetLastMessageDate();
 
   messageInput.disabled = false;
   sendBtn.disabled = false;
@@ -2116,9 +2178,10 @@ function connectWS(sessionID) {
 function handleWS(msg) {
   switch (msg.type) {
     case 'history':
-      messages.innerHTML = '';
+      messages.innerHTML = ''; resetLastMessageDate();
       for (const m of (msg.history || [])) appendMessage(m);
       scrollToBottom();
+      maybeShowCompactReminder(msg.history || []);
       break;
 
     case 'user_message':
@@ -2266,12 +2329,39 @@ function senderColour(name, isAgent) {
   return '#ffffff';
 }
 
+// Track last rendered date for date separators.
+let lastMessageDate = null;
+
+function resetLastMessageDate() { lastMessageDate = null; }
+
+function formatDateSeparator(date) {
+  const today    = new Date();
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const d = new Date(date);
+  if (d.toDateString() === today.toDateString())     return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function maybeInsertDateSeparator(timestamp) {
+  if (!timestamp) return;
+  const d = new Date(timestamp);
+  const dateKey = d.toDateString();
+  if (dateKey === lastMessageDate) return;
+  lastMessageDate = dateKey;
+  const sep = document.createElement('div');
+  sep.className = 'date-separator';
+  sep.innerHTML = `<span>${formatDateSeparator(d)}</span>`;
+  messages.appendChild(sep);
+}
+
 function appendMessage(msg) {
   const isUser = msg.role === 'user';
   const group = document.createElement('div');
   group.className = 'msg-group';
   group.id = 'msg-' + msg.id;
 
+  maybeInsertDateSeparator(msg.timestamp);
   const sender = isUser ? (msg.sender || 'User') : state.agentName;
   const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const isCallout = isUser && msg.content.trimStart().startsWith('@');
@@ -2445,6 +2535,32 @@ async function deleteMessage(msgID, sender) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sender }),
   });
+}
+
+function maybeShowCompactReminder(history) {
+  if (!history || history.length === 0) return;
+
+  const count = history.length;
+  const lastMsg = history[history.length - 1];
+  const lastTime = lastMsg ? new Date(lastMsg.timestamp) : null;
+  const hoursSinceLast = lastTime ? (Date.now() - lastTime) / 36e5 : 0;
+  const isOldSession = hoursSinceLast > 20; // loaded after a day away
+  const isLongSession = count > 50;
+
+  if (!isOldSession && !isLongSession) return;
+
+  const reason = isOldSession
+    ? `This session has ${count} messages and hasn't been active for over a day.`
+    : `This session has ${count} messages — context is getting long.`;
+
+  const banner = document.createElement('div');
+  banner.id = 'compact-banner';
+  banner.innerHTML = `
+    <span>💬 ${reason} Consider running <code>/compact</code> to summarise and save tokens.</span>
+    <button onclick="document.getElementById('compact-banner').remove()" title="Dismiss">✕</button>
+  `;
+  messages.appendChild(banner);
+  scrollToBottom();
 }
 
 function appendSystemNotice(text) {

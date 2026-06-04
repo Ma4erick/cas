@@ -1016,6 +1016,127 @@ func formatBytes(b int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
+// compactSession summarises the session history using Claude and replaces
+// old messages with the summary + the last 5 messages for continuity.
+func (sm *SessionManager) compactSession(sessionID string, session *Session, anthropicKey, modelID string, userEnv []string) {
+	broadcast := func(text string) {
+		msg := Message{
+			ID: uuid.New().String(), Role: "assistant", Content: text,
+			Sender: "CAS", Timestamp: time.Now(),
+		}
+		session.AddMessage(msg)
+		sm.hub.BroadcastToSession(sessionID, WSMessage{Type: "user_message", Message: &msg})
+		sm.persistMessage(session, msg)
+		sm.hub.BroadcastSessionList(sm.sessionList())
+	}
+
+	msgs := session.GetMessages()
+	if len(msgs) < 10 {
+		broadcast("ℹ️ Session is short enough — no need to compact yet.")
+		return
+	}
+
+	broadcast("⏳ Compacting session history…")
+
+	if anthropicKey == "" && DB != nil {
+		if uid := ""; uid != "" {
+			anthropicKey, _ = GetUserAnthropicKey(context.Background(), uid)
+		}
+	}
+	if anthropicKey == "" {
+		broadcast("❌ No Anthropic API key available to compact this session.")
+		return
+	}
+
+	model := sm.model
+	if modelID != "" && allowedModels[modelID] {
+		model = anthropic.Model(modelID)
+	}
+
+	// Build a transcript of the conversation to summarise.
+	var transcript strings.Builder
+	transcript.WriteString("Please produce a comprehensive structured summary of the following conversation. Include:\n")
+	transcript.WriteString("- What was being worked on (project, problem, goal)\n")
+	transcript.WriteString("- Key decisions made and why\n")
+	transcript.WriteString("- Files created or modified\n")
+	transcript.WriteString("- Commands run and their outcomes\n")
+	transcript.WriteString("- Current state of the work\n")
+	transcript.WriteString("- What was left to do or in progress\n\n")
+	transcript.WriteString("CONVERSATION:\n\n")
+	for _, m := range msgs {
+		prefix := "[Agent]"
+		if m.Role == "user" {
+			prefix = fmt.Sprintf("[%s]", m.Sender)
+		}
+		transcript.WriteString(fmt.Sprintf("%s: %s\n\n", prefix, m.Content))
+	}
+
+	client := anthropic.NewClient(option.WithAPIKey(anthropicKey))
+	resp, err := client.Messages.New(context.Background(), anthropic.MessageNewParams{
+		Model:     model,
+		MaxTokens: 4096,
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(transcript.String())),
+		},
+	})
+	if err != nil {
+		broadcast(fmt.Sprintf("❌ Compaction failed: %s", err))
+		return
+	}
+
+	summary := ""
+	for _, block := range resp.Content {
+		if t, ok := block.AsAny().(anthropic.TextBlock); ok {
+			summary = t.Text
+		}
+	}
+	if summary == "" {
+		broadcast("❌ Claude returned an empty summary.")
+		return
+	}
+
+	// Keep the last 5 messages for continuity.
+	keepFrom := len(msgs) - 5
+	if keepFrom < 0 {
+		keepFrom = 0
+	}
+	retained := msgs[keepFrom:]
+
+	// Replace all messages with [summary] + retained.
+	summaryMsg := Message{
+		ID:        uuid.New().String(),
+		Role:      "assistant",
+		Content:   "## 📋 Session Summary\n\n" + summary,
+		Sender:    "CAS",
+		Timestamp: msgs[0].Timestamp, // preserve original start time
+	}
+
+	session.mu.Lock()
+	session.Messages = append([]Message{summaryMsg}, retained...)
+	session.mu.Unlock()
+
+	// Persist to DB — delete old messages and insert the new set.
+	if DB != nil {
+		ctx := context.Background()
+		DB.Exec(ctx, `DELETE FROM messages WHERE session_id = $1`, sessionID)
+		for _, m := range session.GetMessages() {
+			DBAddMessage(ctx, sessionID, m.ID, m.Role, m.Content, m.Sender, m.SenderColor, m.Timestamp)
+		}
+	} else {
+		sm.saveToDisk(session)
+	}
+
+	sm.hub.BroadcastToSession(sessionID, WSMessage{
+		Type:    "history",
+		History: session.GetMessages(),
+	})
+	sm.hub.BroadcastSessionList(sm.sessionList())
+	sm.hub.BroadcastToSession(sessionID, WSMessage{
+		Type: "system",
+		Text: fmt.Sprintf("Session compacted — %d messages replaced with a summary + last 5", len(msgs)),
+	})
+}
+
 // userIDFromRequest extracts the cas-user-id cookie value.
 func userIDFromRequest(r *http.Request) string {
 	if c, err := r.Cookie("cas-user-id"); err == nil {
@@ -1129,6 +1250,13 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 				userEnv = UserShellEnv(r.Context(), uid)
 			}
 		}
+
+		// Handle /compact before triggering a regular stream.
+		if strings.TrimSpace(req.Content) == "/compact" {
+			go sm.compactSession(sessionID, session, anthropicKey, model, userEnv)
+			return
+		}
+
 		go sm.streamResponse(sessionID, session, anthropicKey, model, userEnv)
 	}
 }
