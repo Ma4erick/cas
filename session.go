@@ -442,7 +442,7 @@ func repoNameFromURL(rawURL string) string {
 
 // cloneInBackground clones or pulls repoURL in a goroutine, streaming progress
 // into the session chat via WebSocket system messages.
-func (sm *SessionManager) cloneInBackground(session *Session, repoURL string, githubToken string) {
+func (sm *SessionManager) cloneInBackground(session *Session, repoURL string, githubToken string, githubPAT string) {
 	session.mu.Lock()
 	session.cloning = true
 	session.mu.Unlock()
@@ -492,6 +492,7 @@ func (sm *SessionManager) cloneInBackground(session *Session, repoURL string, gi
 			}
 		}
 		cloneURL := injectToken(repoURL, githubToken)
+		_ = githubPAT // used below if OAuth token fails with auth error
 		cmd = exec.CommandContext(ctx, "git", "clone",
 			"--progress",
 			"--config", "credential.helper=",
@@ -508,6 +509,32 @@ func (sm *SessionManager) cloneInBackground(session *Session, repoURL string, gi
 
 	if err != nil {
 		if isAuthError(output) {
+			// OAuth token failed — retry with PAT if available.
+			if githubToken != "" && githubPAT != "" {
+				broadcast("⚠️ OAuth token failed (possibly pending SSO approval) — retrying with Personal Access Token…", false)
+				patURL := injectToken(repoURL, githubPAT)
+				cmd2 := exec.CommandContext(ctx, "git", "clone", "--progress",
+					"--config", "credential.helper=",
+					"--config", "core.askPass=echo",
+					patURL, dest)
+				cmd2.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0",
+					"GIT_SSH_COMMAND=ssh -o BatchMode=yes -o StrictHostKeyChecking=no")
+				var out2 bytes.Buffer
+				cmd2.Stdout = &out2
+				cmd2.Stderr = &out2
+				if err2 := cmd2.Run(); err2 == nil {
+					// PAT clone succeeded.
+					session.mu.Lock()
+					session.WorkDir = dest
+					session.mu.Unlock()
+					sm.saveToDisk(session)
+					sm.hub.BroadcastSessionList(sm.sessionList())
+					verb := "cloned"
+					broadcast(fmt.Sprintf("✅ Successfully %s into `%s` using Personal Access Token. Ready to go.", verb, dest), false)
+					return
+				}
+			}
+
 			var msg string
 			if githubToken != "" {
 				msg = "❌ Authentication failed — your GitHub token doesn't have access to this repository.\n\nCheck that your token has the correct scopes (`repo` for private repos) and is authorised for the organisation if SSO is enabled.\n\nUpdate your token in the account area at the bottom-left of the sidebar."
@@ -629,16 +656,20 @@ func (sm *SessionManager) CreateSession(w http.ResponseWriter, r *http.Request) 
 		session.cloning = true
 		session.mu.Unlock()
 
-		// Prefer DB-stored GitHub token over the browser-sent one.
+		// Prefer DB-stored tokens over the browser-sent one.
+		// Try OAuth token first; PAT is passed as fallback for SSO-gated orgs.
 		githubToken := req.GithubToken
+		githubPAT := ""
 		if DB != nil {
 			if uid := userIDFromRequest(r); uid != "" {
-				if dbToken, err := GetUserGithubToken(r.Context(), uid); err == nil && dbToken != "" {
-					githubToken = dbToken
+				oauthToken, pat := GetUserGitHubTokens(r.Context(), uid)
+				if oauthToken != "" {
+					githubToken = oauthToken
 				}
+				githubPAT = pat
 			}
 		}
-		go sm.cloneInBackground(session, repoURL, githubToken)
+		go sm.cloneInBackground(session, repoURL, githubToken, githubPAT)
 	}
 }
 

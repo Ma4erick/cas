@@ -212,7 +212,7 @@ func main() {
 				Name           string `json:"name"`
 				Model          string `json:"model"`
 				AnthropicKey   string `json:"anthropicKey"`
-				GithubToken    string `json:"githubToken"`
+				GithubPAT      string `json:"githubToken"` // manual PAT, stored separately from OAuth token
 				AtlassianToken string `json:"atlassianToken"`
 				AtlassianEmail string `json:"atlassianEmail"`
 			}
@@ -220,7 +220,7 @@ func main() {
 				http.Error(w, "invalid request", http.StatusBadRequest)
 				return
 			}
-			if err := UpdateUser(ctx, userID, req.Name, req.Model, req.AnthropicKey, req.GithubToken, req.AtlassianToken, req.AtlassianEmail, ""); err != nil {
+			if err := UpdateUser(ctx, userID, req.Name, req.Model, req.AnthropicKey, req.GithubPAT, req.AtlassianToken, req.AtlassianEmail, ""); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}

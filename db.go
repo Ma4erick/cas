@@ -158,6 +158,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS github_login TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS github_pat TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS atlassian_token TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS atlassian_refresh_token TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS atlassian_email TEXT NOT NULL DEFAULT '';
@@ -206,6 +207,8 @@ type UserProfile struct {
 	GithubTokenSet       bool      `json:"githubTokenSet"`
 	GithubTokenHint      string    `json:"githubTokenHint"`
 	GithubLogin          string    `json:"githubLogin"`
+	GithubPATSet         bool      `json:"githubPATSet"`
+	GithubPATHint        string    `json:"githubPATHint"`
 	AtlassianTokenSet      bool      `json:"atlassianTokenSet"`
 	AtlassianTokenHint     string    `json:"atlassianTokenHint"`
 	AtlassianEmail         string    `json:"atlassianEmail"`
@@ -230,14 +233,14 @@ func GetOrCreateUser(ctx context.Context, userID string) (*UserProfile, error) {
 // GetUser loads a user profile including masked key hints.
 func GetUser(ctx context.Context, userID string) (*UserProfile, error) {
 	row := DB.QueryRow(ctx, `
-		SELECT id, name, model, color, anthropic_key, github_token, github_login,
+		SELECT id, name, model, color, anthropic_key, github_token, github_login, github_pat,
 		       atlassian_token, atlassian_email, atlassian_domain, created_at, last_seen
 		FROM users WHERE id = $1
 	`, userID)
 
 	var p UserProfile
-	var anthropicKey, githubToken, atlassianToken *string
-	err := row.Scan(&p.ID, &p.Name, &p.Model, &p.Color, &anthropicKey, &githubToken, &p.GithubLogin,
+	var anthropicKey, githubToken, githubPAT, atlassianToken *string
+	err := row.Scan(&p.ID, &p.Name, &p.Model, &p.Color, &anthropicKey, &githubToken, &p.GithubLogin, &githubPAT,
 		&atlassianToken, &p.AtlassianEmail, &p.AtlassianDomain, &p.CreatedAt, &p.LastSeen)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -256,6 +259,11 @@ func GetUser(ctx context.Context, userID string) (*UserProfile, error) {
 		p.GithubTokenSet = plain != ""
 		p.GithubTokenHint = maskKey(plain)
 	}
+	if githubPAT != nil && *githubPAT != "" {
+		plain, _ := Decrypt(*githubPAT)
+		p.GithubPATSet = plain != ""
+		p.GithubPATHint = maskKey(plain)
+	}
 	if atlassianToken != nil && *atlassianToken != "" {
 		plain, _ := Decrypt(*atlassianToken)
 		p.AtlassianTokenSet = plain != ""
@@ -272,7 +280,17 @@ func GetUser(ctx context.Context, userID string) (*UserProfile, error) {
 
 // UpdateUser saves name, model, and optionally encrypted keys.
 // Pass empty string for a key to leave it unchanged.
-func UpdateUser(ctx context.Context, userID, name, model, anthropicKey, githubToken, atlassianToken, atlassianEmail, atlassianDomain string) error {
+func UpdateUser(ctx context.Context, userID, name, model, anthropicKey, githubPAT, atlassianToken, atlassianEmail, atlassianDomain string) error {
+	// Save manual PAT separately — never overwrites the OAuth token.
+	if githubPAT != "" {
+		enc, err := Encrypt(githubPAT)
+		if err != nil {
+			return err
+		}
+		if _, err := DB.Exec(ctx, `UPDATE users SET github_pat = $1 WHERE id = $2`, enc, userID); err != nil {
+			return err
+		}
+	}
 	if atlassianToken != "" {
 		enc, err := Encrypt(atlassianToken)
 		if err != nil {
@@ -298,15 +316,6 @@ func UpdateUser(ctx context.Context, userID, name, model, anthropicKey, githubTo
 			return err
 		}
 		if _, err := DB.Exec(ctx, `UPDATE users SET anthropic_key = $1 WHERE id = $2`, enc, userID); err != nil {
-			return err
-		}
-	}
-	if githubToken != "" {
-		enc, err := Encrypt(githubToken)
-		if err != nil {
-			return err
-		}
-		if _, err := DB.Exec(ctx, `UPDATE users SET github_token = $1 WHERE id = $2`, enc, userID); err != nil {
 			return err
 		}
 	}
@@ -441,6 +450,20 @@ func GetUserAnthropicKey(ctx context.Context, userID string) (string, error) {
 		return "", err
 	}
 	return Decrypt(*enc)
+}
+
+// GetUserGitHubTokens returns the OAuth token and PAT for a user separately.
+// Use oauthToken first; fall back to pat if oauth fails (e.g. pending SSO approval).
+func GetUserGitHubTokens(ctx context.Context, userID string) (oauthToken, pat string) {
+	var encOAuth, encPAT *string
+	DB.QueryRow(ctx, `SELECT github_token, github_pat FROM users WHERE id = $1`, userID).Scan(&encOAuth, &encPAT)
+	if encOAuth != nil {
+		oauthToken, _ = Decrypt(*encOAuth)
+	}
+	if encPAT != nil {
+		pat, _ = Decrypt(*encPAT)
+	}
+	return
 }
 
 // GetUserGithubToken returns the decrypted GitHub token for a user.
