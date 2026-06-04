@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: zot
+  namespace: zot
+spec:
+  selector:
+    app: zot
+  ports:
+    - port: 5000
+      targetPort: 5000
+      name: registry
+  type: ClusterIP
+---
+# NodePort so you can push images to it from your Mac
+apiVersion: v1
+kind: Service
+metadata:
+  name: zot-nodeport
+  namespace: zot
+spec:
+  selector:
+    app: zot
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 30500
+      name: registry
+  type: NodePort

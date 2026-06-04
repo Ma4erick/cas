@@ -1,0 +1,50 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta2
+kind: HelmRelease
+metadata:
+  name: cas
+  namespace: cas
+spec:
+  interval: 5m                          # Reconcile every 5 minutes
+
+  chart:
+    spec:
+      chart: cas
+      version: ">=0.0.0"               # Always use the latest pushed chart version
+      sourceRef:
+        kind: HelmRepository
+        name: cas-charts
+        namespace: flux-system
+      interval: 1m                     # Check for new chart versions every minute
+
+  # Override values for this environment
+  values:
+    image:
+      repository: registry.local:5000/cas
+      tag: latest
+      pullPolicy: Always               # Always pull so new image pushes take effect
+
+    replicaCount: 1
+
+    config:
+      casBaseUrl: "http://localhost:8080"   # Update for production
+      casModel: "claude-sonnet-4-6"
+      atlassianDomain: "yourcompany.atlassian.net"
+      showTokenFields: "false"
+
+    ingress:
+      enabled: false                   # Enable when you have an ingress controller
+
+    persistence:
+      enabled: false                   # Enable with a real PVC for production
+
+    # Point to your K8s secret for sensitive config
+    secrets:
+      name: cas-secrets
+
+  # Upgrade behaviour
+  upgrade:
+    remediation:
+      retries: 3
+  install:
+    remediation:
+      retries: 3
