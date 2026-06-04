@@ -1,6 +1,6 @@
 # ── Config ────────────────────────────────────────────────────────────────────
-REGISTRY        ?= localhost:5001        # port-forward to Zot inside k3d
-REGISTRY_INTERNAL ?= registry.local:5000 # how k3s/FluxCD sees the registry
+REGISTRY ?= 127.0.0.1:5001
+REGISTRY_INTERNAL ?= registry.local:5000
 IMAGE_NAME      := cas
 CHART_DIR       := helm/cas
 CHART_NAME      := cas
@@ -29,10 +29,12 @@ build:
 	docker build -t $(REGISTRY)/$(IMAGE_NAME):$(VERSION) .
 	docker tag $(REGISTRY)/$(IMAGE_NAME):$(VERSION) $(REGISTRY)/$(IMAGE_NAME):latest
 
-## Push Docker image to Zot
+## Push Docker image to Zot via skopeo (works with Rancher Desktop)
 push-image: build
-	docker push $(REGISTRY)/$(IMAGE_NAME):$(VERSION)
-	docker push $(REGISTRY)/$(IMAGE_NAME):latest
+	docker save $(REGISTRY)/$(IMAGE_NAME):$(VERSION) | \
+	  skopeo copy --dest-tls-verify=false docker-archive:/dev/stdin docker://$(REGISTRY)/$(IMAGE_NAME):$(VERSION)
+	docker save $(REGISTRY)/$(IMAGE_NAME):latest | \
+	  skopeo copy --dest-tls-verify=false docker-archive:/dev/stdin docker://$(REGISTRY)/$(IMAGE_NAME):latest
 
 ## Package Helm chart with current version
 package-chart:

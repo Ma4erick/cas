@@ -608,6 +608,7 @@ func (sm *SessionManager) CreateSession(w http.ResponseWriter, r *http.Request) 
 		WorkDir:   workDir,
 		Messages:  []Message{},
 		CreatedAt: time.Now(),
+		cloning:   repoURL != "", // prevent premature pruning before clone creates workDir
 	}
 
 	sm.mu.Lock()
@@ -621,8 +622,23 @@ func (sm *SessionManager) CreateSession(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(session)
 
 	// Kick off the clone in the background now that the session exists.
+	// Set cloning = true BEFORE launching the goroutine so pruneDeletedSessions
+	// doesn't remove the session before the workDir is created.
 	if repoURL != "" {
-		go sm.cloneInBackground(session, repoURL, req.GithubToken)
+		session.mu.Lock()
+		session.cloning = true
+		session.mu.Unlock()
+
+		// Prefer DB-stored GitHub token over the browser-sent one.
+		githubToken := req.GithubToken
+		if DB != nil {
+			if uid := userIDFromRequest(r); uid != "" {
+				if dbToken, err := GetUserGithubToken(r.Context(), uid); err == nil && dbToken != "" {
+					githubToken = dbToken
+				}
+			}
+		}
+		go sm.cloneInBackground(session, repoURL, githubToken)
 	}
 }
 

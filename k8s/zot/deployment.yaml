@@ -35,11 +35,11 @@ spec:
               mountPath: /var/lib/registry
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 20m
+              memory: 64Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 256Mi
           livenessProbe:
             httpGet:
               path: /v2/
@@ -57,4 +57,6 @@ spec:
           configMap:
             name: zot-config
         - name: storage
-          emptyDir: {}        # Use PVC in production
+          hostPath:
+            path: /var/lib/zot-registry
+            type: DirectoryOrCreate

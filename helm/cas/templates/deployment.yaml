@@ -21,9 +21,9 @@ spec:
       {{- end }}
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65532    # nonroot user from Chainguard static image
+        runAsUser: 65532    # nonroot user from Chainguard git image
         runAsGroup: 65532
-        fsGroup: 65532
+        fsGroup: 65532      # ensures PVC is writable by the app user
       containers:
         - name: cas
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -43,7 +43,7 @@ spec:
             - name: SHOW_TOKEN_FIELDS
               value: {{ .Values.config.showTokenFields | quote }}
             - name: CAS_PROJECTS_DIR
-              value: {{ .Values.persistence.mountPath | quote }}
+              value: {{ default .Values.persistence.mountPath .Values.config.casProjectsDir | quote }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

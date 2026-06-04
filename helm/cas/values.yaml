@@ -63,14 +63,14 @@ resources:
 # ── Health checks ─────────────────────────────────────────────────────────────
 livenessProbe:
   httpGet:
-    path: /api/config
+    path: /
     port: 8080
   initialDelaySeconds: 10
   periodSeconds: 30
 
 readinessProbe:
   httpGet:
-    path: /api/config
+    path: /
     port: 8080
   initialDelaySeconds: 5
   periodSeconds: 10

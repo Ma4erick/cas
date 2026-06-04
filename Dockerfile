@@ -12,11 +12,12 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cas .
 
 # ── Final stage ───────────────────────────────────────────────────────────────
-FROM cgr.dev/chainguard/static:latest
+# Use git image — includes git, sh and CA certs needed for CAS git operations
+FROM cgr.dev/chainguard/git:latest
 
 WORKDIR /app
 
-# Copy the binary — static files are embedded, nothing else needed
+# Copy the binary — static files are embedded
 COPY --from=builder /build/cas .
 
 EXPOSE 8080

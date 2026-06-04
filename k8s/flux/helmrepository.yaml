@@ -1,9 +1,10 @@
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: cas-charts
   namespace: flux-system
 spec:
-  type: oci                              # Zot is an OCI registry
-  url: oci://registry.local:5000/helm   # Internal k3s name for Zot
-  interval: 1m                          # How often FluxCD polls for new chart versions
+  type: oci
+  url: oci://10.43.12.86:5000/helm      # Zot ClusterIP — always reachable from flux pods
+  insecure: true                        # Zot is HTTP only in dev
+  interval: 1m
