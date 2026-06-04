@@ -53,6 +53,30 @@ push-chart: package-chart
 ## Full deploy cycle — build, push image + chart
 push: push-image push-chart
 
+## Build, push image + chart, then redeploy in k3d
+deploy: push
+	@echo ""
+	@# Bump chart version and push
+	helm package $(CHART_DIR) --version $(CHART_VERSION) --destination /tmp/helm-packages
+	helm push /tmp/helm-packages/$(CHART_NAME)-$(CHART_VERSION).tgz oci://$(REGISTRY)/helm --plain-http
+	@echo ""
+	@# Trigger FluxCD to pick up new chart, then restart pod for new image
+	kubectl -n flux-system annotate helmchart.source.toolkit.fluxcd.io cas-cas \
+	  reconcile.fluxcd.io/requestedAt="$(shell date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite 2>/dev/null || true
+	kubectl -n cas delete pod -l app.kubernetes.io/name=cas 2>/dev/null || true
+	@echo ""
+	@echo "Waiting for CAS to come up..."
+	kubectl -n cas rollout status deployment/cas-cas --timeout=120s 2>/dev/null || \
+	  kubectl -n cas wait pod -l app.kubernetes.io/name=cas --for=condition=Ready --timeout=120s
+	@echo ""
+	@echo "✓ CAS $(VERSION) deployed"
+
+## Push new image only and restart pod (no chart change needed)
+restart: push-image
+	kubectl -n cas delete pod -l app.kubernetes.io/name=cas
+	kubectl -n cas wait pod -l app.kubernetes.io/name=cas --for=condition=Ready --timeout=120s
+	@echo "✓ CAS restarted with new image"
+
 ## Show what's in Zot
 list:
 	@echo "=== Images ==="
