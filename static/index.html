@@ -3399,6 +3399,34 @@ loadProfile().then(() => {
 });
 setInterval(loadSessions, 5000);
 
+// ── iOS keyboard: resize #main to visual viewport so input stays visible ──────
+// When the iOS keyboard opens, position:fixed elements don't shrink.
+// visualViewport gives us the actual visible area, so we set #main's height
+// explicitly — this pushes the input row up above the keyboard.
+(function() {
+  const mainEl = document.getElementById('main');
+  function applyViewport() {
+    if (window.innerWidth > 640) {
+      mainEl.style.height = '';
+      mainEl.style.top = '';
+      return;
+    }
+    const vv = window.visualViewport;
+    if (!vv) return;
+    mainEl.style.height = vv.height + 'px';
+    mainEl.style.top    = vv.offsetTop + 'px';
+    // Scroll the focused input into view within the messages/input area
+    const active = document.activeElement;
+    if (active && (active === messageInput || active.closest('#input-row'))) {
+      setTimeout(() => active.scrollIntoView({ block: 'end' }), 50);
+    }
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', applyViewport);
+    window.visualViewport.addEventListener('scroll', applyViewport);
+  }
+})();
+
 // Register PWA service worker
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
