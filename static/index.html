@@ -179,6 +179,10 @@
     /* ── Session list touch targets ───────────────────────────────── */
     .session-item { min-height: 52px; padding: 10px 12px; }
 
+    /* Hide delete button on mobile — iOS hover intercepts first tap */
+    .session-delete { display: none !important; }
+    .session-item:hover .session-delete { display: none !important; }
+
     /* ── Profile modal: fixed full-screen ─────────────────────────── */
     #profile-overlay {
       position: fixed !important;
