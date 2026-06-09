@@ -85,7 +85,7 @@
   @media (max-width: 640px) {
     body {
       font-size: 14px;
-      position: relative; /* required so absolute children position against body */
+      position: relative;
       overflow: hidden;
     }
 
@@ -98,6 +98,8 @@
       z-index: 10;
       transform: translateX(0);
       transition: transform 0.22s ease;
+      /* Push content below iPhone status bar */
+      padding-top: env(safe-area-inset-top);
     }
 
     body.session-open #sidebar {
@@ -112,12 +114,38 @@
       width: 100%;
     }
 
-    #mobile-back { display: block; }
+    /* Chat header — pushed below iPhone status bar, taller for easy tapping */
+    #chat-header {
+      padding-top: calc(env(safe-area-inset-top) + 10px);
+      min-height: calc(env(safe-area-inset-top) + 52px);
+      padding-left: 12px;
+      padding-right: 12px;
+    }
 
-    /* Larger touch targets */
+    /* Back button — bigger and more visible on mobile */
+    #mobile-back {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      color: var(--text);
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--sidebar-hover);
+      margin-right: 8px;
+      flex-shrink: 0;
+    }
+
+    /* Input area — pad bottom for iPhone home indicator */
+    #input-row {
+      padding: 10px 12px;
+      padding-bottom: calc(env(safe-area-inset-bottom) + 10px);
+    }
+    #msg-input { font-size: 16px; }
+
+    /* Larger touch targets for session list */
     .session-item { min-height: 52px; padding: 10px 12px; }
-    #input-row { padding: 10px 12px 12px; }
-    #msg-input { font-size: 16px; } /* prevents iOS auto-zoom on focus */
 
     /* Profile modal — true full screen on mobile */
     #profile-overlay {
@@ -134,6 +162,7 @@
       margin: 0 !important;
       border-left: none !important;
       border-right: none !important;
+      padding-top: env(safe-area-inset-top);
     }
 
     #pwa-hint { display: block; }
