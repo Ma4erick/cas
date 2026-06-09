@@ -3295,8 +3295,14 @@ fetch(apiURL('/api/config')).then(r => r.json()).then(cfg => {
 });
 loadProfile().then(() => {
   const name = localStorage.getItem('cas-sender-name') || (serverProfile && serverProfile.name) || '';
-  if (!name) {
+  if (!name && !serverProfile) {
+    // No session at all — show login
     showLogin();
+  } else if (!name && serverProfile) {
+    // Valid session but name not set — go straight to sessions and open profile to prompt for name
+    loadSessions();
+    openProfile();
+    profileName.focus();
   } else {
     loadSessions();
   }
