@@ -2083,7 +2083,7 @@ function openProfile() {
     modal.style.maxHeight = window.innerHeight + 'px';
   }
 
-  profileName.focus();
+  if (window.innerWidth > 640) profileName.focus();
 }
 
 function closeProfile() {
