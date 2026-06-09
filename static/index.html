@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>CAS — Collaborative Agentic Space</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0d1117">
@@ -3511,10 +3511,6 @@ setInterval(loadSessions, 5000);
     const vv = window.visualViewport;
     if (!vv) return;
     mainEl.style.height = vv.height + 'px';
-    const active = document.activeElement;
-    if (active && (active === messageInput || active.closest('#input-row'))) {
-      setTimeout(() => active.scrollIntoView({ block: 'end' }), 50);
-    }
   }
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', applyViewport);

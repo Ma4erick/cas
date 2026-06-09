@@ -2,7 +2,7 @@
 // Provides offline shell and asset caching for PWA install.
 // Does NOT cache API responses or WebSocket — those are always live.
 
-const CACHE_NAME = 'cas-v1.2.5';
+const CACHE_NAME = 'cas-v1.2.6';
 
 // Static assets to pre-cache on install
 const PRECACHE_ASSETS = [
