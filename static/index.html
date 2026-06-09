@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>CAS — Collaborative Agentic Space</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0d1117">
@@ -218,16 +218,18 @@
     #pwa-hint { display: block; }
   }
 
-  /* PWA standalone: belt-and-braces safe area fallback (47px = iPhone notch minimum) */
-  @media (display-mode: standalone) and (max-width: 640px) {
-    #sidebar {
+  /* PWA standalone: belt-and-braces safe area fallback (47px = iPhone notch minimum).
+     Applied via JS body class — more reliable than @media (display-mode: standalone)
+     which can fail to match on some iOS PWA installs.                               */
+  @media (max-width: 640px) {
+    body.ios-standalone #sidebar {
       padding-top: max(env(safe-area-inset-top), 47px);
     }
-    #chat-header {
+    body.ios-standalone #chat-header {
       padding-top: calc(max(env(safe-area-inset-top), 47px) + 10px);
       min-height: calc(max(env(safe-area-inset-top), 47px) + 52px);
     }
-    #profile-modal {
+    body.ios-standalone #profile-modal {
       padding-top: max(env(safe-area-inset-top), 47px) !important;
     }
   }
@@ -3503,31 +3505,39 @@ loadProfile().then(() => {
 });
 setInterval(loadSessions, 5000);
 
+// ── iOS standalone detection ──────────────────────────────────────────────────
+// @media (display-mode: standalone) is unreliable on some iOS PWA installs.
+// Use navigator.standalone (set by iOS for home-screen apps) via a body class.
+if (window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches) {
+  document.body.classList.add('ios-standalone');
+}
+
 // ── iOS viewport: keep #main sized to the visible area ───────────────────────
 //
-// `body { position: fixed }` in the mobile CSS prevents iOS from scrolling the
-// layout viewport when the keyboard opens (which caused the left-shift glitch).
+// vv.height tracks the true visible area (shrinks when keyboard opens, and in
+// Safari browser it excludes the bottom address bar).
 //
-// This handler still needs to run because:
-//   • Safari browser (non-PWA): vv.height excludes the bottom address bar, so
-//     we must set an explicit height or the input row hides behind it.
-//   • Keyboard open: vv.height shrinks, so #main must shrink to match.
-//
-// We always set mainEl.style.height = vv.height so both cases are handled.
-// Only `height` is touched — never `top` or any scroll position.
+// vv.offsetLeft tracks horizontal shift iOS applies to the layout viewport when
+// the keyboard opens and it tries to scroll the focused input into view.
+// We counter that shift with a translateX on #main so content stays centred.
 (function() {
   const mainEl = document.getElementById('main');
   function applyViewport() {
     if (window.innerWidth > 640) {
       mainEl.style.height = '';
+      mainEl.style.transform = '';
       return;
     }
     const vv = window.visualViewport;
     if (!vv) return;
     mainEl.style.height = vv.height + 'px';
+    // Counter any horizontal viewport offset iOS may apply on keyboard open
+    const offsetX = vv.offsetLeft || 0;
+    mainEl.style.transform = offsetX ? `translateX(${-offsetX}px)` : '';
   }
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', applyViewport);
+    window.visualViewport.addEventListener('scroll', applyViewport);
   }
 })();
 
