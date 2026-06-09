@@ -218,6 +218,20 @@
     #pwa-hint { display: block; }
   }
 
+  /* PWA standalone: belt-and-braces safe area fallback (47px = iPhone notch minimum) */
+  @media (display-mode: standalone) and (max-width: 640px) {
+    #sidebar {
+      padding-top: max(env(safe-area-inset-top), 47px);
+    }
+    #chat-header {
+      padding-top: calc(max(env(safe-area-inset-top), 47px) + 10px);
+      min-height: calc(max(env(safe-area-inset-top), 47px) + 52px);
+    }
+    #profile-modal {
+      padding-top: max(env(safe-area-inset-top), 47px) !important;
+    }
+  }
+
   /* Sidebar */
   #sidebar {
     width: 260px;
