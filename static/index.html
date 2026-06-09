@@ -83,15 +83,21 @@
   }
 
   @media (max-width: 640px) {
-    body { font-size: 14px; }
+    body {
+      font-size: 14px;
+      position: relative; /* required so absolute children position against body */
+      overflow: hidden;
+    }
 
+    /* Sidebar takes full screen — slides left when a session is open */
     #sidebar {
-      width: 100vw;
-      min-width: unset;
       position: absolute;
-      inset: 0;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100%;
+      min-width: unset;
       z-index: 10;
-      transition: transform 0.2s ease;
+      transform: translateX(0);
+      transition: transform 0.22s ease;
     }
 
     body.session-open #sidebar {
@@ -99,25 +105,35 @@
       pointer-events: none;
     }
 
+    /* Main panel always fills screen underneath */
     #main {
-      width: 100vw;
       position: absolute;
-      inset: 0;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100%;
     }
 
     #mobile-back { display: block; }
 
+    /* Larger touch targets */
     .session-item { min-height: 52px; padding: 10px 12px; }
-
     #input-row { padding: 10px 12px 12px; }
-    #msg-input { font-size: 16px; }
+    #msg-input { font-size: 16px; } /* prevents iOS auto-zoom on focus */
 
+    /* Profile modal — true full screen on mobile */
+    #profile-overlay {
+      align-items: flex-start;
+      justify-content: flex-start;
+      padding: 0;
+    }
     #profile-modal {
       width: 100vw !important;
       max-width: 100vw !important;
+      max-height: 100dvh !important;
       height: 100dvh;
-      border-radius: 0;
-      margin: 0;
+      border-radius: 0 !important;
+      margin: 0 !important;
+      border-left: none !important;
+      border-right: none !important;
     }
 
     #pwa-hint { display: block; }
