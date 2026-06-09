@@ -2186,7 +2186,7 @@ accountGear.addEventListener('click', () => {
   }
 
   sidebarEl.addEventListener('transitionend', () => {
-    if (document.body.classList.contains('session-open')) {
+    if (window.innerWidth <= 640 && document.body.classList.contains('session-open')) {
       sidebarEl.style.display = 'none';
     }
   });
