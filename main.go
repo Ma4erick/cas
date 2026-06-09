@@ -443,12 +443,29 @@ func main() {
 		mux.ServeHTTP(w, r)
 	})
 
+	// CORS middleware — allows the CAS PWA installed from any origin to reach
+	// this backend. Credentials (cookies) are included so session auth works.
+	corsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		authedMux.ServeHTTP(w, r)
+	})
+
 	ip := localIP()
 	log.Printf("CAS running at http://localhost:%s", *portFlag)
 	log.Printf("Share with teammates: http://%s:%s", ip, *portFlag)
-	var handler http.Handler = authedMux
+	var handler http.Handler = corsHandler
 	if Verbose {
-		handler = verboseHandler(authedMux)
+		handler = verboseHandler(corsHandler)
 	}
 	log.Fatal(http.ListenAndServe(":"+*portFlag, handler))
 }

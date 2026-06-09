@@ -1277,6 +1277,7 @@
           <span id="brand-name">CAS</span>
         </div>
         <span id="brand-tagline">Collaborative Agentic Space</span>
+        <span id="brand-server" style="display:none;font-size:10px;color:var(--text-muted);font-family:monospace;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;" title="Connected to remote CAS server"></span>
       </div>
       <button id="admin-btn" title="Admin — manage sessions">⚙</button>
     </div>
@@ -1449,6 +1450,17 @@
       <div id="profile-success" style="display:none;color:#23a559;font-size:13px;font-weight:600;margin-bottom:10px;text-align:center;">✓ Changes saved successfully</div>
       <button id="profile-save" class="btn btn-primary" style="width:100%;">Save changes</button>
     </div>
+    <!-- Server connection settings (PWA multi-backend support) -->
+    <div class="profile-field" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
+      <label style="font-size:12px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Server</label>
+      <div style="display:flex;gap:8px;margin-top:6px;align-items:center;">
+        <input id="server-url" type="url" placeholder="https://cas.example.com"
+          style="flex:1;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;font-family:monospace;"
+          spellcheck="false" autocomplete="off">
+        <button id="server-url-save" class="btn btn-primary" style="white-space:nowrap;padding:7px 14px;font-size:13px;">Connect</button>
+      </div>
+      <div id="server-url-status" style="font-size:12px;color:var(--text-muted);margin-top:5px;"></div>
+    </div>
     <button id="profile-logout">↩ Sign out</button>
   </div>
 </div>
@@ -1510,6 +1522,31 @@
 </div>
 
 <script>
+// ─── Backend URL configuration ────────────────────────────────────────────────
+// Allows the PWA to connect to any CAS instance, not just the one that served it.
+const CAS_BASE_URL_KEY = 'cas_base_url';
+
+function getBaseURL() {
+  return localStorage.getItem(CAS_BASE_URL_KEY) || window.location.origin;
+}
+
+function setBaseURL(url) {
+  // Normalise — strip trailing slash
+  const normalised = url.replace(/\/$/, '');
+  localStorage.setItem(CAS_BASE_URL_KEY, normalised);
+}
+
+function apiURL(path) {
+  return getBaseURL() + path;
+}
+
+function wsURL(path) {
+  const base = getBaseURL();
+  const proto = base.startsWith('https') ? 'wss' : 'ws';
+  return proto + '://' + base.replace(/^https?:\/\//, '') + path;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 marked.setOptions({ breaks: true });
 
 const renderer = new marked.Renderer();
@@ -1564,8 +1601,11 @@ const profileGithub    = document.getElementById('profile-github');
 const anthropicStatus = document.getElementById('anthropic-status');
 const githubStatus    = document.getElementById('github-status');
 const githubPATStatus = document.getElementById('github-pat-status');
-const profileLogout         = document.getElementById('profile-logout');
+const profileLogout          = document.getElementById('profile-logout');
 const profileAtlassianToken  = document.getElementById('profile-atlassian-token');
+const serverURLInput         = document.getElementById('server-url');
+const serverURLSave          = document.getElementById('server-url-save');
+const serverURLStatus        = document.getElementById('server-url-status');
 const profileAtlassianEmail  = document.getElementById('profile-atlassian-email');
 const atlassianStatus        = document.getElementById('atlassian-status');
 
@@ -1695,7 +1735,7 @@ loginBtn.addEventListener('click', async () => {
   loginError.style.display = 'none';
   loginBtn.disabled = true;
   try {
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch(apiURL('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -1725,7 +1765,7 @@ regBtn.addEventListener('click', async () => {
   }
   regBtn.disabled = true;
   try {
-    const res = await fetch('/api/auth/register', {
+    const res = await fetch(apiURL('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, displayName, password }),
@@ -1758,7 +1798,7 @@ function updateKeyStatus(el, isSet, hint) {
 
 async function loadProfile() {
   try {
-    const res = await fetch('/api/profile');
+    const res = await fetch(apiURL('/api/profile');
     if (!res.ok) return;
     serverProfile = await res.json();
     senderName.value = serverProfile.name || '';
@@ -1780,7 +1820,7 @@ async function loadProfile() {
 
 async function saveProfile() {
   if (!serverProfile) return;
-  const res = await fetch('/api/profile', {
+  const res = await fetch(apiURL('/api/profile', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1803,7 +1843,7 @@ async function saveProfile() {
 
 async function syncSessionStatus(sessionId, status) {
   if (!serverProfile) return;
-  await fetch('/api/profile/session', {
+  await fetch(apiURL('/api/profile/session', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId, status }),
@@ -1871,8 +1911,37 @@ function openProfile() {
 
 function closeProfile() { profileOverlay.classList.remove('open'); }
 
-accountGear.addEventListener('click', openProfile);
+accountGear.addEventListener('click', () => {
+  // Populate server URL field with current value
+  serverURLInput.value = getBaseURL();
+  serverURLStatus.textContent = '';
+  openProfile();
+});
 profileOverlay.addEventListener('click', e => { if (e.target === profileOverlay) closeProfile(); });
+
+// Server URL — test connection then save
+serverURLSave.addEventListener('click', async () => {
+  const raw = serverURLInput.value.trim();
+  if (!raw) return;
+  const url = raw.replace(/\/$/, '');
+  serverURLStatus.textContent = 'Connecting…';
+  serverURLStatus.style.color = 'var(--text-muted)';
+  serverURLSave.disabled = true;
+  try {
+    const res = await fetch(url + '/api/config', { credentials: 'include' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    setBaseURL(url);
+    serverURLStatus.textContent = `✓ Connected to ${url}`;
+    serverURLStatus.style.color = '#23a559';
+    // Reload app data from new backend
+    setTimeout(() => { window.location.reload(); }, 800);
+  } catch (e) {
+    serverURLStatus.textContent = `✗ Could not reach server: ${e.message}`;
+    serverURLStatus.style.color = '#e53e3e';
+  } finally {
+    serverURLSave.disabled = false;
+  }
+});
 
 profileName.addEventListener('input', () => {
   localStorage.setItem('cas-sender-name', profileName.value);
@@ -1896,7 +1965,7 @@ profileColor.addEventListener('input', () => {
 
   if (serverProfile) {
     serverProfile.color = color;
-    fetch('/api/profile/color', {
+    fetch(apiURL('/api/profile/color', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ color }),
@@ -1939,7 +2008,7 @@ document.getElementById('profile-save').addEventListener('click', async () => {
 profileLogout.addEventListener('click', async () => {
   Object.keys(localStorage).filter(k => k.startsWith('cas-')).forEach(k => localStorage.removeItem(k));
   document.cookie = 'cas-user-id=; Max-Age=0; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC';
-  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  await fetch(apiURL('/api/logout', { method: 'POST' }).catch(() => {});
   location.reload();
 });
 
@@ -1968,7 +2037,7 @@ sendBtn.addEventListener('click', send);
 
 stopBtn.addEventListener('click', async () => {
   if (!state.activeSessionID) return;
-  await fetch(`/api/sessions/${state.activeSessionID}/cancel`, { method: 'POST' });
+  await fetch(apiURL(`/api/sessions/${state.activeSessionID}/cancel`, { method: 'POST' });
 });
 
 // Session management
@@ -2005,7 +2074,7 @@ modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) m
 modalName.addEventListener('keydown', (e) => { if (e.key === 'Enter') modalCreate.click(); });
 
 async function loadFolders() {
-  const res = await fetch('/api/folders');
+  const res = await fetch(apiURL('/api/folders');
   const folders = await res.json();
   const current = modalFolder.value;
   modalFolder.innerHTML = '<option value=""></option>';
@@ -2056,7 +2125,7 @@ modalCreate.addEventListener('click', async () => {
 
   modalOverlay.classList.remove('open');
 
-  const res = await fetch('/api/sessions', {
+  const res = await fetch(apiURL('/api/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, folderName, repoURL, githubToken: localStorage.getItem('cas-github-token') || '' }),
@@ -2068,7 +2137,7 @@ modalCreate.addEventListener('click', async () => {
 });
 
 async function loadSessions() {
-  const res = await fetch('/api/sessions');
+  const res = await fetch(apiURL('/api/sessions');
   state.sessions = await res.json();
   // First-time migration: auto-join all existing sessions so returning users
   // don't see an empty sidebar after this change. Only runs once per browser.
@@ -2204,7 +2273,7 @@ function renderSessionList() {
         const q = searchInput.value.trim();
         if (!q) { renderDiscover(discoverSessions); return; }
         try {
-          const res = await fetch(`/api/sessions/search?q=${encodeURIComponent(q)}`);
+          const res = await fetch(apiURL(`/api/sessions/search?q=${encodeURIComponent(q)}`);
           const results = await res.json();
           // Filter to only unjoined, not-left sessions.
           const filtered = (results || []).filter(s => !joined.has(s.id) && !left.has(s.id));
@@ -2251,7 +2320,7 @@ function connectWS(sessionID) {
   const isFirst = !announcedSessions.has(sessionID);
   if (isFirst) announcedSessions.add(sessionID);
   const announce = isFirst ? '&announce=1' : '';
-  const ws = new WebSocket(`${proto}://${location.host}/api/sessions/${sessionID}/ws?name=${name}${announce}`);
+  const ws = new WebSocket(wsURL(`/api/sessions/${sessionID}/ws?name=${name}${announce}`));
 
   ws.onopen = () => statusDot.classList.remove('streaming');
 
@@ -2544,7 +2613,7 @@ async function send() {
   messageInput.value = '';
   messageInput.style.height = 'auto';
 
-  await fetch(`/api/sessions/${state.activeSessionID}/messages`, {
+  await fetch(apiURL(`/api/sessions/${state.activeSessionID}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -2624,7 +2693,7 @@ function appendToolResult(name, output, isError) {
 }
 
 async function deleteMessage(msgID, sender) {
-  await fetch(`/api/sessions/${state.activeSessionID}/messages/${msgID}`, {
+  await fetch(apiURL(`/api/sessions/${state.activeSessionID}/messages/${msgID}`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sender }),
@@ -2688,7 +2757,7 @@ function deleteSession(id) {
     // then immediately close it.
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const name = encodeURIComponent(senderName.value.trim() || 'Anonymous');
-    const leaveWS = new WebSocket(`${proto}://${location.host}/api/sessions/${id}/ws?name=${name}&leave=1`);
+    const leaveWS = new WebSocket(wsURL(`/api/sessions/${id}/ws?name=${name}&leave=1`));
     leaveWS.onopen = () => leaveWS.close();
 
     if (state.ws) { state.ws.close(); state.ws = null; }
@@ -2757,7 +2826,7 @@ function insertMention(name) {
 
 async function fetchMentions(query) {
   try {
-    const res = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+    const res = await fetch(apiURL(`/api/users/search?q=${encodeURIComponent(query)}`);
     const names = await res.json();
     if (mentionQuery === query) showMentionDropdown(names || [], query);
   } catch { hideMentionDropdown(); }
@@ -2839,7 +2908,7 @@ fileInput.addEventListener('change', async () => {
   uploadBtn.disabled = true;
 
   try {
-    const res = await fetch(`/api/sessions/${state.activeSessionID}/upload`, {
+    const res = await fetch(apiURL(`/api/sessions/${state.activeSessionID}/upload`, {
       method: 'POST',
       body: form,
     });
@@ -2964,7 +3033,7 @@ adminConfirmOk.addEventListener('click', async () => {
   adminConfirmCheck.checked = false;
   adminConfirmOk.disabled = true;
 
-  const res = await fetch(`/api/admin/sessions/${id}?confirm=true`, { method: 'DELETE' });
+  const res = await fetch(apiURL(`/api/admin/sessions/${id}?confirm=true`, { method: 'DELETE' });
   if (!res.ok) {
     showError(await res.text());
   }
@@ -2983,7 +3052,7 @@ function gitStatusBadge(git) {
 }
 
 async function loadAdminSessions() {
-  const res = await fetch('/api/admin/sessions');
+  const res = await fetch(apiURL('/api/admin/sessions');
   const sessions = await res.json();
   adminTbody.innerHTML = '';
   if (!sessions || sessions.length === 0) {
@@ -3087,8 +3156,20 @@ function setupOAuth(cfg) {
   }
 }
 
+// Show server badge if PWA is connected to a non-local backend
+(function() {
+  const base = getBaseURL();
+  if (base !== window.location.origin) {
+    const badge = document.getElementById('brand-server');
+    const host = base.replace(/^https?:\/\//, '');
+    badge.textContent = '⇒ ' + host;
+    badge.style.display = 'block';
+    badge.title = 'Connected to ' + base + ' — change in ⚙ Profile';
+  }
+})();
+
 // Init
-fetch('/api/config').then(r => r.json()).then(cfg => {
+fetch(apiURL('/api/config')).then(r => r.json()).then(cfg => {
   state.agentName = cfg.model || 'Agent';
   setupOAuth(cfg);
 });
