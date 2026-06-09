@@ -58,6 +58,9 @@
     line-height: 1;
   }
 
+  /* Hidden on desktop — shown on mobile only when session is open */
+  #sidebar-close { display: none; }
+
   #pwa-hint {
     display: none;
     margin: 10px 12px 0;
@@ -136,6 +139,23 @@
       margin-right: 8px;
       flex-shrink: 0;
     }
+
+    /* Sidebar close button — only shown when a session is already open */
+    #sidebar-close {
+      display: none;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 18px;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      cursor: pointer;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+    }
+    body.session-open #sidebar-close { display: flex; }
 
     /* Input area — pad bottom for iPhone home indicator */
     #input-row {
@@ -1403,6 +1423,7 @@
         <span id="brand-server" style="display:none;font-size:10px;color:var(--text-muted);font-family:monospace;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;" title="Connected to remote CAS server"></span>
       </div>
       <button id="admin-btn" title="Admin — manage sessions">⚙</button>
+      <button id="sidebar-close" title="Back to session">✕</button>
     </div>
     <div id="pwa-hint">
       <button id="pwa-hint-close" title="Dismiss">✕</button>
@@ -2046,6 +2067,10 @@ accountGear.addEventListener('click', () => {
 // Mobile: back button
 document.getElementById('mobile-back').addEventListener('click', () => {
   document.body.classList.remove('session-open');
+});
+
+document.getElementById('sidebar-close').addEventListener('click', () => {
+  document.body.classList.add('session-open');
 });
 
 // PWA install hint
