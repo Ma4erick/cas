@@ -8,23 +8,72 @@ There is nothing to install on a user's machine. Any device with a browser can p
 
 ---
 
+
+
 ## How it works
 
-```
-┌─────────────────────────────────────────────────┐
-│               CAS Server                        │
-│  Go binary · Git · PostgreSQL · Redis           │
-│  Holds the code. Runs the tools.                │
-│  Streams everything to every browser.           │
-└────────────────┬────────────────────────────────┘
-                 │  WebSocket + HTTP
-       ┌─────────┼─────────┐
-       ▼         ▼         ▼
-   Browser    Browser    Browser
-   (Dev 1)   (Dev 2)   (Dev 3)
-                              ↑
-                        Any device.
-                        No install.
+## System Architecture
+
+```mermaid
+graph TB
+    %% Themes & Styles
+    classDef client fill:#E0F2FE,stroke:#0284C7,stroke-width:2px,color:#0369A1,font-weight:bold;
+    classDef gateway fill:#F0FDFA,stroke:#0D9488,stroke-width:2px,color:#0F766E,font-weight:bold;
+    classDef engine fill:#F8FAFC,stroke:#475569,stroke-width:2px,color:#1E293B,font-weight:bold;
+    classDef storage fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#B45309,font-weight:bold;
+    classDef external fill:#F3E8FF,stroke:#7E22CE,stroke-width:2px,color:#6B21A8,font-weight:bold;
+
+    %% Tier 1: Clients
+    subgraph Tier_Client ["🌐 CLIENT TIER (NO-INSTALL)"]
+        dev1["💻 Dev Browser 1"]:::client
+        dev2["📱 Dev Browser 2"]:::client
+    end
+
+    %% Tier 2 & 3: Application Engine
+    subgraph Tier_Engine ["⚙️ CAS SERVER CORE ENGINE"]
+        router["🎯 HTTP & WebSocket Router<br/>(main.go)"]:::gateway
+        hub["🔄 WebSocket Hub<br/>(hub.go)"]:::engine
+        lifecycle["🧠 Session Lifecycle<br/>(session.go)"]:::engine
+        core["🛡️ Auth & Crypto<br/>(crypto.go / bcrypt)"]:::engine
+        bash["🛠️ Allowed Tool Executor<br/>(go / git / gh / koda)"]:::engine
+    end
+
+    %% Tier 4: Storage & State (Left Side)
+    subgraph Tier_Infra ["💾 PERSISTENCE & INFRASTRUCTURE"]
+        pg[("🗄️ PostgreSQL DB<br/>(Profiles & History)")]:::storage
+        redis[("⚡ Redis Cluster<br/>(Cross-Pod Pub/Sub)")]:::storage
+        storage["📁 Shared Projects Folder<br/>(CAS_PROJECTS_DIR)"]:::storage
+    end
+
+    %% Tier 5: External Services (Right Side)
+    subgraph Tier_Cloud ["🤖 EXTERNAL INTEGRATIONS"]
+        anthropic["🧠 Anthropic Claude API"]:::external
+        github["🐙 GitHub API / OAuth"]:::external
+        jira["💼 Atlassian REST APIs"]:::external
+    end
+
+    %% Routing Links
+    dev1 & dev2 <-->|"WebSocket / HTTP"| router
+    
+    router <--> hub
+    router --> core
+    hub <--> lifecycle
+    lifecycle -->|"Launches Tools"| bash
+    
+    core <--> pg
+    hub <-->|"Multi-Pod Broadcast"| redis
+    lifecycle <-->|"File I/O & Uploads"| storage
+    bash <-->|"Git Ops"| storage
+    lifecycle -.->|"Decrypted Keys"| core
+    
+    lifecycle ==>|"Streams Prompts"| anthropic
+    bash ==>|"Context Injections"| github
+    bash ==>|"REST Tokens"| jira
+
+    style Tier_Client fill:#FAFAFA,stroke:#CBD5E1,stroke-width:1px,stroke-dasharray: 4 4;
+    style Tier_Engine fill:#FAFAFA,stroke:#CBD5E1,stroke-width:1px,stroke-dasharray: 4 4;
+    style Tier_Infra fill:#FAFAFA,stroke:#CBD5E1,stroke-width:1px,stroke-dasharray: 4 4;
+    style Tier_Cloud fill:#FAFAFA,stroke:#CBD5E1,stroke-width:1px,stroke-dasharray: 4 4;
 ```
 
 The **browser** is the terminal — where users send instructions, see responses, and watch the agent work.  
