@@ -695,6 +695,43 @@ func GetUnreadCounts(ctx context.Context, userID string) (map[string]int, error)
 	return result, nil
 }
 
+// GetUserIDsByDisplayNames resolves a slice of display names (or usernames) to
+// user IDs. Names that don't match any registered user are silently skipped.
+func GetUserIDsByDisplayNames(ctx context.Context, names []string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	rows, err := DB.Query(ctx, `
+		SELECT id FROM users
+		WHERE password_hash IS NOT NULL
+		  AND COALESCE(NULLIF(name,''), username) = ANY($1)
+	`, names)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// InviteUserToSession adds a user to a session with "invited" status, but only
+// if they don't already have a membership record (so active/left members are unaffected).
+func InviteUserToSession(ctx context.Context, userID, sessionID string) error {
+	_, err := DB.Exec(ctx, `
+		INSERT INTO session_members (user_id, session_id, status, last_read_at, updated_at)
+		VALUES ($1, $2, 'invited', NOW(), NOW())
+		ON CONFLICT (user_id, session_id) DO NOTHING
+	`, userID, sessionID)
+	return err
+}
+
 // ── Auth functions ────────────────────────────────────────────────────────────
 
 // RegisterUser sets a username and bcrypt password on an existing user (by cookie ID)

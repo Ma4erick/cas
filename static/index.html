@@ -1884,14 +1884,21 @@ function getLeft() {
 }
 function saveJoined(set) { localStorage.setItem('cas-joined', JSON.stringify([...set])); }
 function saveLeft(set) { localStorage.setItem('cas-left', JSON.stringify([...set])); }
+function getInvited() {
+  try { return new Set(JSON.parse(localStorage.getItem('cas-invited') || '[]')); }
+  catch { return new Set(); }
+}
+function saveInvited(set) { localStorage.setItem('cas-invited', JSON.stringify([...set])); }
 function joinSession(id) {
   const j = getJoined(); j.add(id); saveJoined(j);
   const l = getLeft(); l.delete(id); saveLeft(l);
+  const i = getInvited(); i.delete(id); saveInvited(i);
   // DB join status is updated server-side in ServeWS when the WS connects.
 }
 function leaveSession(id) {
   const j = getJoined(); j.delete(id); saveJoined(j);
   const l = getLeft(); l.add(id); saveLeft(l);
+  const i = getInvited(); i.delete(id); saveInvited(i);
   // DB leave status is updated server-side in hub.go when the leave WS closes.
 }
 
@@ -2055,12 +2062,14 @@ async function loadProfile() {
     localStorage.setItem('cas-sender-name', serverProfile.name || '');
     if (serverProfile.model) localStorage.setItem('cas-model', serverProfile.model);
     if (serverProfile.sessionStatuses) {
-      const joined = new Set(), left = new Set();
+      const joined = new Set(), left = new Set(), invited = new Set();
       for (const [id, status] of Object.entries(serverProfile.sessionStatuses)) {
         if (status === 'joined') joined.add(id);
         else if (status === 'left') left.add(id);
+        else if (status === 'invited') invited.add(id);
       }
       saveJoined(joined); saveLeft(left);
+      localStorage.setItem('cas-invited', JSON.stringify([...invited]));
       if (joined.size > 0 || left.size > 0) localStorage.setItem('cas-initialized', '1');
     }
     updateAvatar();
@@ -2474,7 +2483,7 @@ async function loadSessions() {
   renderSessionList();
 }
 
-function makeSessionItem(s, isDiscover) {
+function makeSessionItem(s, isDiscover, isInvited) {
   const el = document.createElement('div');
   el.className = 'session-item' + (s.id === state.activeSessionID ? ' active' : '') + (isDiscover ? ' discover-item' : '');
   el.dataset.id = s.id;
@@ -2491,13 +2500,16 @@ function makeSessionItem(s, isDiscover) {
     el.addEventListener('click', () => selectSession(s.id));
   } else {
     const unread = unreadCount(s);
+    const badge = isInvited
+      ? `<span class="session-unread" title="You were mentioned in this session" style="background:var(--accent,#7c6af7);opacity:0.85;">@</span>`
+      : (unread > 0 ? `<span class="session-unread">${unread}</span>` : '');
     el.innerHTML = `
       <span class="hash">•</span>
       <span class="session-label">
         <span class="session-name">${escHtml(s.name)}</span>
         ${dirLabel ? `<span class="session-workdir" title="${escHtml(s.workDir)}">${escHtml(dirLabel)}</span>` : ''}
       </span>
-      ${unread > 0 ? `<span class="session-unread">${unread}</span>` : ''}
+      ${badge}
       <button class="session-delete" title="Leave session">✕</button>
     `;
     el.addEventListener('click', () => selectSession(s.id));
@@ -2534,17 +2546,18 @@ function addSectionLabel(text, marginTop, withSort) {
 function renderSessionList() {
   sessionList.innerHTML = '';
 
-  const joined = getJoined();
-  const left   = getLeft();
+  const joined  = getJoined();
+  const left    = getLeft();
+  const invited = getInvited();
   const allSessions = state.sessions || [];
 
-  const mySessions     = allSessions.filter(s => joined.has(s.id));
+  const mySessions     = allSessions.filter(s => joined.has(s.id) || invited.has(s.id));
   const recentSessions = allSessions
-    .filter(s => !joined.has(s.id) && left.has(s.id))
+    .filter(s => !joined.has(s.id) && !invited.has(s.id) && left.has(s.id))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 5);
   const discoverSessions = allSessions
-    .filter(s => !joined.has(s.id) && !left.has(s.id))
+    .filter(s => !joined.has(s.id) && !invited.has(s.id) && !left.has(s.id))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 5);
 
@@ -2553,7 +2566,7 @@ function renderSessionList() {
     sessionList.innerHTML = '<div style="padding:12px 12px;color:var(--text-muted);font-size:13px;">No active sessions</div>';
   } else {
     addSectionLabel('My Sessions', false, true);
-    for (const s of sortSessions(mySessions)) sessionList.appendChild(makeSessionItem(s, false));
+    for (const s of sortSessions(mySessions)) sessionList.appendChild(makeSessionItem(s, false, invited.has(s.id)));
   }
 
   // Recent Sessions
@@ -2718,6 +2731,7 @@ function handleWS(msg) {
           if (s) s.messageCount = ws.messageCount;
         });
       }
+      loadProfile();  // re-sync invited/joined statuses from server
       loadSessions(); // full HTTP refresh for per-user unread counts
       const active = state.sessions.find(s => s.id === state.activeSessionID);
       if (active) {

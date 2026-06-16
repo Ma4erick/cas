@@ -268,6 +268,27 @@ func (h *Hub) BroadcastSessionList(sessions interface{}) {
 	h.BroadcastAll(WSMessage{Type: "session_list", Sessions: sessions})
 }
 
+// BroadcastToUser sends a message to all clients belonging to a specific user,
+// across all sessions they're currently connected to.
+func (h *Hub) BroadcastToUser(userID string, msg WSMessage) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, clients := range h.sessions {
+		for client := range clients {
+			if client.userID == userID {
+				select {
+				case client.send <- data:
+				default:
+				}
+			}
+		}
+	}
+}
+
 func (h *Hub) ServeWS(sm *SessionManager, sessionID string, w http.ResponseWriter, r *http.Request) {
 	session, ok := sm.GetSession(sessionID)
 	if !ok {
