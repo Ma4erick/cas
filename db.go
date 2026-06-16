@@ -706,17 +706,24 @@ func GetUnreadCounts(ctx context.Context, userID string) (map[string]int, error)
 	return result, nil
 }
 
-// GetUserIDsByDisplayNames resolves a slice of display names (or usernames) to
-// user IDs. Names that don't match any registered user are silently skipped.
-func GetUserIDsByDisplayNames(ctx context.Context, names []string) ([]string, error) {
-	if len(names) == 0 {
+// GetUserIDsByMentionTokens resolves @mention tokens to user IDs.
+// Each token is matched (case-insensitively) against:
+//   - the username (always a single word)
+//   - the full display name
+//   - the first word of the display name (handles "@London" → "London Summers")
+func GetUserIDsByMentionTokens(ctx context.Context, tokens []string) ([]string, error) {
+	if len(tokens) == 0 {
 		return nil, nil
 	}
 	rows, err := DB.Query(ctx, `
-		SELECT id FROM users
+		SELECT DISTINCT id FROM users
 		WHERE password_hash IS NOT NULL
-		  AND COALESCE(NULLIF(name,''), username) = ANY($1)
-	`, names)
+		  AND (
+		    LOWER(username) = ANY(SELECT LOWER(t) FROM UNNEST($1::text[]) t)
+		    OR LOWER(name)  = ANY(SELECT LOWER(t) FROM UNNEST($1::text[]) t)
+		    OR LOWER(SPLIT_PART(name, ' ', 1)) = ANY(SELECT LOWER(t) FROM UNNEST($1::text[]) t)
+		  )
+	`, tokens)
 	if err != nil {
 		return nil, err
 	}

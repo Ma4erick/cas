@@ -1318,7 +1318,7 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 	}
 }
 
-// inviteMentionedUsers parses @Name tokens from a callout message, resolves
+// inviteMentionedUsers parses @token mentions from a callout message, resolves
 // them to user IDs, and adds each as an "invited" session member so the
 // session appears in their sidebar. A session_list push is sent to any of
 // those users who are currently connected.
@@ -1326,33 +1326,23 @@ func (sm *SessionManager) inviteMentionedUsers(ctx context.Context, sessionID, c
 	if DB == nil {
 		return
 	}
-	// Extract every word that immediately follows a @ character.
-	// The frontend inserts mentions as "@FirstName LastName " so we collect
-	// multi-word names by joining consecutive capitalised words after @.
-	var names []string
-	words := strings.Fields(content)
-	for i, w := range words {
+	// Extract every @token. The autocomplete inserts "@DisplayName " so each
+	// mention is a single whitespace-delimited token prefixed with @.
+	// We do NOT try to join subsequent words — that caused false matches
+	// (e.g. "@CAS Adding" being treated as one name).
+	var tokens []string
+	for _, w := range strings.Fields(content) {
 		if strings.HasPrefix(w, "@") {
-			name := strings.TrimPrefix(w, "@")
-			// Collect subsequent words that look like part of the same name.
-			for j := i + 1; j < len(words); j++ {
-				if len(words[j]) > 0 && words[j][0] >= 'A' && words[j][0] <= 'Z' {
-					name += " " + words[j]
-					i = j
-				} else {
-					break
-				}
-			}
-			if name != "" {
-				names = append(names, name)
+			if t := strings.TrimPrefix(w, "@"); t != "" {
+				tokens = append(tokens, t)
 			}
 		}
 	}
-	if len(names) == 0 {
+	if len(tokens) == 0 {
 		return
 	}
 
-	userIDs, err := GetUserIDsByDisplayNames(ctx, names)
+	userIDs, err := GetUserIDsByMentionTokens(ctx, tokens)
 	if err != nil || len(userIDs) == 0 {
 		return
 	}
