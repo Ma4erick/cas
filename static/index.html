@@ -2003,6 +2003,9 @@ loginBtn.addEventListener('click', async () => {
       return;
     }
     onLoginSuccess(await res.json());
+  } catch (e) {
+    loginError.textContent = 'Could not reach server. Check your connection or server URL.';
+    loginError.style.display = 'block';
   } finally {
     loginBtn.disabled = false;
   }
@@ -2033,6 +2036,9 @@ regBtn.addEventListener('click', async () => {
       return;
     }
     onLoginSuccess(await res.json());
+  } catch (e) {
+    regError.textContent = 'Could not reach server. Check your connection or server URL.';
+    regError.style.display = 'block';
   } finally {
     regBtn.disabled = false;
   }
