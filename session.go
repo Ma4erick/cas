@@ -1288,13 +1288,12 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 
 	w.WriteHeader(http.StatusAccepted)
 
-	// Invite any @mentioned users regardless of where in the message the mention appears.
+	// Any message containing @mention is a teammate callout — invite mentioned
+	// users and skip the agent regardless of where in the message the @ appears.
 	if strings.Contains(req.Content, "@") {
 		go sm.inviteMentionedUsers(r.Context(), sessionID, req.Content)
 	}
-
-	// Messages that START with @ are pure teammate callouts — skip the agent.
-	if !strings.HasPrefix(strings.TrimSpace(req.Content), "@") {
+	if !strings.Contains(req.Content, "@") {
 		anthropicKey := strings.TrimSpace(req.AnthropicKey)
 		model := strings.TrimSpace(req.Model)
 
