@@ -145,7 +145,7 @@ CREATE INDEX IF NOT EXISTS messages_session_id_idx ON messages(session_id, creat
 
 CREATE TABLE IF NOT EXISTS session_members (
     user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    session_id   TEXT NOT NULL,
+    session_id   TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     status       TEXT NOT NULL DEFAULT 'joined',
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_read_at TIMESTAMPTZ,
@@ -167,6 +167,17 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_color TEXT NOT NULL DEFAULT
 ALTER TABLE session_members ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (LOWER(username)) WHERE username IS NOT NULL;
 UPDATE session_members SET last_read_at = updated_at WHERE last_read_at IS NULL;
+DELETE FROM session_members WHERE session_id NOT IN (SELECT id FROM sessions);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'session_members_session_id_fkey'
+  ) THEN
+    ALTER TABLE session_members
+      ADD CONSTRAINT session_members_session_id_fkey
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE;
+  END IF;
+END $$;
 `
 
 func runMigrations(ctx context.Context) error {

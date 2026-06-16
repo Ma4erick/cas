@@ -851,6 +851,12 @@ func (sm *SessionManager) AdminDeleteSession(w http.ResponseWriter, r *http.Requ
 		os.Remove(workDir)
 	}
 
+	if DB != nil {
+		if err := DBDeleteSession(context.Background(), sessionID); err != nil {
+			log.Printf("failed to delete session from DB %s: %v", sessionID, err)
+		}
+	}
+
 	sm.hub.BroadcastSessionList(sm.sessionList())
 	log.Printf("admin deleted session %s (%s)", sessionID, workDir)
 	w.WriteHeader(http.StatusNoContent)
