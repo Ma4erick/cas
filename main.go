@@ -32,14 +32,9 @@ func logVerbose(format string, args ...any) {
 
 // verboseHandler wraps a mux to log all HTTP requests, excluding high-frequency
 // polling paths that would flood the log buffer and obscure useful entries.
-var verboseSkip = map[string]bool{
-	"/api/sessions": true,
-	"/":             true,
-}
-
 func verboseHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if Verbose && !verboseSkip[r.URL.Path] {
+		if Verbose && (r.Method != http.MethodGet || r.Header.Get("Upgrade") == "websocket") {
 			log.Printf("[http] %s %s %s", r.Method, r.URL.Path, r.RemoteAddr)
 		}
 		h.ServeHTTP(w, r)
