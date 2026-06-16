@@ -82,7 +82,11 @@ func main() {
 	mux := http.NewServeMux()
 
 	staticFS, _ := fs.Sub(staticFiles, "static")
-	mux.Handle("/", http.FileServer(http.FS(staticFS)))
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		http.FileServer(http.FS(staticFS)).ServeHTTP(w, r)
+	}))
 
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
