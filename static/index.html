@@ -2763,6 +2763,7 @@ function handleWS(msg) {
       }
       loadProfile();  // re-sync invited/joined statuses from server
       loadSessions(); // full HTTP refresh for per-user unread counts
+      loadFolders();  // keep folder picker in sync with deleted sessions
       const active = state.sessions.find(s => s.id === state.activeSessionID);
       if (active) {
         sessionMeta.textContent = `${active.messageCount} messages`;

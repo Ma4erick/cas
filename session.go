@@ -339,13 +339,23 @@ func (sm *SessionManager) DeleteSession(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	workDir := session.WorkDir
+
 	if DB != nil {
 		if err := DBDeleteSession(context.Background(), sessionID); err != nil {
 			log.Printf("failed to delete session from DB %s: %v", sessionID, err)
 		}
 	} else {
-		path := filepath.Join(casDir(session.WorkDir), "session.json")
+		path := filepath.Join(casDir(workDir), "session.json")
 		os.Remove(path)
+	}
+
+	// Remove the project folder from persistent storage so it no longer
+	// appears in the folder picker dropdown.
+	if workDir != "" {
+		if err := os.RemoveAll(workDir); err != nil && !os.IsNotExist(err) {
+			log.Printf("failed to remove workdir for session %s: %v", sessionID, err)
+		}
 	}
 
 	sm.hub.BroadcastSessionList(sm.sessionList())
