@@ -2903,13 +2903,15 @@ function appendMessage(msg) {
   const sender = isUser ? (msg.sender || 'User') : state.agentName;
   const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const isCallout = isUser && msg.content.trimStart().startsWith('@');
+  const hasMention = isUser && msg.content.includes('@');
 
   // Check if this is a file upload message
   const isUpload = isUser && msg.content.startsWith('📎');
   let contentHtml;
   if (isUpload && state.activeSessionID) {
     contentHtml = filePreviewHtml(msg.content, state.activeSessionID) || marked.parse(msg.content);
-  } else if (isCallout) {
+  } else if (hasMention) {
+    // Apply mention highlighting to any user message containing @, not just callouts.
     contentHtml = escHtml(msg.content).replace(/\n/g, '<br>').replace(/@(\w+)/g, '<span class="mention">@$1</span>');
   } else {
     contentHtml = isUser ? escHtml(msg.content).replace(/\n/g, '<br>') : marked.parse(msg.content);
@@ -3562,6 +3564,7 @@ validateAndInit().then(() => {
   }
 });
 setInterval(loadSessions, 5000);
+setInterval(loadProfile, 10000); // sync invited/joined status even without an active WS
 
 // ── iOS standalone detection ──────────────────────────────────────────────────
 // @media (display-mode: standalone) is unreliable on some iOS PWA installs.
