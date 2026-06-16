@@ -1578,6 +1578,9 @@
       </div>
     </div>
 
+    <!-- JS error banner — hidden unless a script crash is detected -->
+    <div id="js-error-banner" style="display:none;background:#c53030;color:#fff;font-size:12px;padding:8px 10px;border-radius:6px;margin-bottom:12px;word-break:break-all;"></div>
+
     <!-- Login form -->
     <div id="login-form">
       <div class="login-field">
@@ -1753,6 +1756,23 @@
 </div>
 
 <script>
+// Surface any unhandled JS error directly on the login screen so we can
+// diagnose crashes without needing browser DevTools.
+window.onerror = function(msg, src, line, col) {
+  const banner = document.getElementById('js-error-banner');
+  if (banner) {
+    banner.textContent = 'JS error at ' + (src||'?').split('/').pop() + ':' + line + ' — ' + msg;
+    banner.style.display = 'block';
+  }
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  const banner = document.getElementById('js-error-banner');
+  if (banner) {
+    banner.textContent = 'Unhandled promise rejection: ' + (e.reason && e.reason.message || e.reason);
+    banner.style.display = 'block';
+  }
+});
 // ─── Backend URL configuration ────────────────────────────────────────────────
 const CAS_BASE_URL_KEY = 'cas_base_url';
 
