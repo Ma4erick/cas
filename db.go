@@ -739,13 +739,16 @@ func GetUserIDsByMentionTokens(ctx context.Context, tokens []string) ([]string, 
 	return ids, nil
 }
 
-// InviteUserToSession adds a user to a session with "invited" status, but only
-// if they don't already have a membership record (so active/left members are unaffected).
+// InviteUserToSession sets a user's membership to "invited" so the session
+// appears in their sidebar. Already-joined members are left untouched; users
+// who previously left are re-invited so they see the mention.
 func InviteUserToSession(ctx context.Context, userID, sessionID string) error {
 	_, err := DB.Exec(ctx, `
 		INSERT INTO session_members (user_id, session_id, status, last_read_at, updated_at)
 		VALUES ($1, $2, 'invited', NOW(), NOW())
-		ON CONFLICT (user_id, session_id) DO NOTHING
+		ON CONFLICT (user_id, session_id) DO UPDATE
+		SET status = 'invited', updated_at = NOW()
+		WHERE session_members.status <> 'joined'
 	`, userID, sessionID)
 	return err
 }
