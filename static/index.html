@@ -1757,7 +1757,11 @@
 const CAS_BASE_URL_KEY = 'cas_base_url';
 
 function getBaseURL() {
-  return localStorage.getItem(CAS_BASE_URL_KEY) || window.location.origin;
+  const stored = localStorage.getItem(CAS_BASE_URL_KEY);
+  // If the stored URL is the same origin as where the page loaded from, always
+  // use window.location.origin so a server IP change is picked up automatically.
+  if (!stored || stored === window.location.origin) return window.location.origin;
+  return stored;
 }
 
 function setBaseURL(url) {
@@ -3506,12 +3510,25 @@ function setupOAuth(cfg) {
   }
 }
 
-// Init
-fetch(apiURL('/api/config')).then(r => r.json()).then(cfg => {
-  state.agentName = cfg.model || 'Agent';
-  setupOAuth(cfg);
-});
-loadProfile().then(() => {
+// Init — validate stored server URL before first use, reset to origin if stale
+async function validateAndInit() {
+  const stored = localStorage.getItem(CAS_BASE_URL_KEY);
+  if (stored && stored !== window.location.origin) {
+    try {
+      await fetch(stored + '/api/config', { signal: AbortSignal.timeout(3000) });
+    } catch {
+      // Stored URL is unreachable — fall back to where this page was served from
+      localStorage.removeItem(CAS_BASE_URL_KEY);
+    }
+  }
+  fetch(apiURL('/api/config')).then(r => r.json()).then(cfg => {
+    state.agentName = cfg.model || 'Agent';
+    setupOAuth(cfg);
+  });
+  await loadProfile();
+}
+
+validateAndInit().then(() => {
   const name = (serverProfile && serverProfile.name) || localStorage.getItem('cas-sender-name') || '';
   if (!serverProfile) {
     // No valid session — show login
