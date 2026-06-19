@@ -178,6 +178,17 @@ DO $$ BEGIN
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE;
   END IF;
 END $$;
+CREATE TABLE IF NOT EXISTS pending_prs (
+  id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  session_id      TEXT NOT NULL,
+  pr_url          TEXT NOT NULL,
+  pr_number       INT  NOT NULL,
+  repo            TEXT NOT NULL,
+  requester_user_id TEXT NOT NULL,
+  requester_name  TEXT NOT NULL DEFAULT '',
+  status          TEXT NOT NULL DEFAULT 'pending',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 `
 
 func runMigrations(ctx context.Context) error {
@@ -339,13 +350,21 @@ func UpdateUser(ctx context.Context, userID, name, model, anthropicKey, githubPA
 // UserShellEnv returns environment variables to inject into shell commands for a user.
 func UserShellEnv(ctx context.Context, userID string) []string {
 	var env []string
-	var ghEnc, atlEnc *string
+	var ghEnc, ghPatEnc, atlEnc *string
 	var atlEmail string
-	DB.QueryRow(ctx, `SELECT github_token, atlassian_token, atlassian_email FROM users WHERE id = $1`, userID).
-		Scan(&ghEnc, &atlEnc, &atlEmail)
+	DB.QueryRow(ctx, `SELECT github_token, github_pat, atlassian_token, atlassian_email FROM users WHERE id = $1`, userID).
+		Scan(&ghEnc, &ghPatEnc, &atlEnc, &atlEmail)
 
+	ghSet := false
 	if ghEnc != nil {
 		if plain, err := Decrypt(*ghEnc); err == nil && plain != "" {
+			env = append(env, "GH_TOKEN="+plain)
+			env = append(env, "GITHUB_TOKEN="+plain)
+			ghSet = true
+		}
+	}
+	if !ghSet && ghPatEnc != nil {
+		if plain, err := Decrypt(*ghPatEnc); err == nil && plain != "" {
 			env = append(env, "GH_TOKEN="+plain)
 			env = append(env, "GITHUB_TOKEN="+plain)
 		}
@@ -817,4 +836,48 @@ func UserHasPassword(ctx context.Context, userID string) bool {
 	var has bool
 	DB.QueryRow(ctx, `SELECT password_hash IS NOT NULL FROM users WHERE id = $1`, userID).Scan(&has)
 	return has
+}
+
+// PendingPR represents a GitHub PR awaiting in-session approval.
+type PendingPR struct {
+	ID               string `json:"id"`
+	SessionID        string `json:"sessionId"`
+	PRURL            string `json:"prUrl"`
+	PRNumber         int    `json:"prNumber"`
+	Repo             string `json:"repo"`
+	RequesterUserID  string `json:"requesterUserId"`
+	RequesterName    string `json:"requesterName"`
+	Status           string `json:"status"`
+}
+
+// CreatePendingPR inserts a pending PR approval record.
+func CreatePendingPR(ctx context.Context, sessionID, prURL string, prNumber int, repo, requesterUserID, requesterName string) (*PendingPR, error) {
+	pr := &PendingPR{}
+	err := DB.QueryRow(ctx, `
+		INSERT INTO pending_prs (session_id, pr_url, pr_number, repo, requester_user_id, requester_name)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, session_id, pr_url, pr_number, repo, requester_user_id, requester_name, status
+	`, sessionID, prURL, prNumber, repo, requesterUserID, requesterName).
+		Scan(&pr.ID, &pr.SessionID, &pr.PRURL, &pr.PRNumber, &pr.Repo, &pr.RequesterUserID, &pr.RequesterName, &pr.Status)
+	return pr, err
+}
+
+// GetPendingPRForSession returns the latest pending PR for a session, or nil if none.
+func GetPendingPRForSession(ctx context.Context, sessionID string) (*PendingPR, error) {
+	pr := &PendingPR{}
+	err := DB.QueryRow(ctx, `
+		SELECT id, session_id, pr_url, pr_number, repo, requester_user_id, requester_name, status
+		FROM pending_prs WHERE session_id = $1 AND status = 'pending'
+		ORDER BY created_at DESC LIMIT 1
+	`, sessionID).Scan(&pr.ID, &pr.SessionID, &pr.PRURL, &pr.PRNumber, &pr.Repo, &pr.RequesterUserID, &pr.RequesterName, &pr.Status)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	return pr, err
+}
+
+// ApprovePendingPR marks a pending PR as approved.
+func ApprovePendingPR(ctx context.Context, id string) error {
+	_, err := DB.Exec(ctx, `UPDATE pending_prs SET status = 'approved' WHERE id = $1`, id)
+	return err
 }

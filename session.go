@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -324,6 +326,19 @@ func (sm *SessionManager) GetSession(id string) (*Session, bool) {
 	defer sm.mu.RUnlock()
 	s, ok := sm.sessions[id]
 	return s, ok
+}
+
+// ActiveWorkDirs returns the set of workDir paths for all live sessions.
+func (sm *SessionManager) ActiveWorkDirs() map[string]bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	dirs := make(map[string]bool, len(sm.sessions))
+	for _, s := range sm.sessions {
+		if s.WorkDir != "" {
+			dirs[s.WorkDir] = true
+		}
+	}
+	return dirs
 }
 
 func (sm *SessionManager) DeleteSession(w http.ResponseWriter, r *http.Request, sessionID string) {
@@ -1022,7 +1037,7 @@ func (sm *SessionManager) UploadFile(w http.ResponseWriter, r *http.Request, ses
 		}
 		session.AddMessage(agentMsg)
 		sm.persistSession(session)
-		sm.streamResponse(sessionID, session, uploadAnthropicKey, "", nil)
+		sm.streamResponse(sessionID, session, uploadAnthropicKey, "", nil, "")
 	}()
 }
 
@@ -1291,7 +1306,7 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 	// Any message containing @mention is a teammate callout — invite mentioned
 	// users and skip the agent regardless of where in the message the @ appears.
 	if strings.Contains(req.Content, "@") {
-		go sm.inviteMentionedUsers(r.Context(), sessionID, req.Content)
+		go sm.inviteMentionedUsers(context.Background(), sessionID, req.Content)
 	}
 	if !strings.Contains(req.Content, "@") {
 		anthropicKey := strings.TrimSpace(req.AnthropicKey)
@@ -1312,8 +1327,10 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 			}
 		}
 		userEnv := []string{}
+		requesterUserID := ""
 		if DB != nil {
 			if uid := userIDFromRequest(r); uid != "" {
+				requesterUserID = uid
 				userEnv = UserShellEnv(r.Context(), uid)
 			}
 		}
@@ -1324,7 +1341,7 @@ func (sm *SessionManager) SendMessage(w http.ResponseWriter, r *http.Request, se
 			return
 		}
 
-		go sm.streamResponse(sessionID, session, anthropicKey, model, userEnv)
+		go sm.streamResponse(sessionID, session, anthropicKey, model, userEnv, requesterUserID)
 	}
 }
 
@@ -1348,11 +1365,13 @@ func (sm *SessionManager) inviteMentionedUsers(ctx context.Context, sessionID, c
 			}
 		}
 	}
+	log.Printf("[mention] tokens=%v sessionID=%s", tokens, sessionID)
 	if len(tokens) == 0 {
 		return
 	}
 
 	userIDs, err := GetUserIDsByMentionTokens(ctx, tokens)
+	log.Printf("[mention] resolved userIDs=%v err=%v", userIDs, err)
 	if err != nil || len(userIDs) == 0 {
 		return
 	}
@@ -1360,9 +1379,10 @@ func (sm *SessionManager) inviteMentionedUsers(ctx context.Context, sessionID, c
 	sessions := sm.sessionList()
 	for _, uid := range userIDs {
 		if err := InviteUserToSession(ctx, uid, sessionID); err != nil {
-			log.Printf("inviteMentionedUsers: %v", err)
+			log.Printf("[mention] InviteUserToSession uid=%s err=%v", uid, err)
 			continue
 		}
+		log.Printf("[mention] invited uid=%s, broadcasting session_list", uid)
 		sm.hub.BroadcastToUser(uid, WSMessage{Type: "session_list", Sessions: sessions})
 	}
 }
@@ -1428,8 +1448,28 @@ var allowedCommands = []string{
 
 func isAllowed(cmd string) bool {
 	trimmed := strings.TrimSpace(cmd)
+	// Block direct pushes to protected branches — all changes must go via PR.
+	if isPushToProtectedBranch(trimmed) {
+		return false
+	}
 	for _, prefix := range allowedCommands {
 		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isPushToProtectedBranch returns true if the command is a git push targeting
+// main or master directly, which is not allowed — use a PR instead.
+func isPushToProtectedBranch(cmd string) bool {
+	if !strings.HasPrefix(cmd, "git push") {
+		return false
+	}
+	lower := strings.ToLower(cmd)
+	for _, branch := range []string{"main", "master"} {
+		// Match: git push origin main, git push --set-upstream origin main, etc.
+		if strings.HasSuffix(lower, " "+branch) || strings.Contains(lower, " "+branch+":") {
 			return true
 		}
 	}
@@ -1539,7 +1579,18 @@ func buildSystemPrompt(workDir string, userEnv []string) []anthropic.TextBlockPa
 			"Multiple team members share this session — each user message is prefixed with [Name]:. "+
 			"You can read and edit files, run allowed shell commands, and use git."+
 			"%s"+
-			"\nWhen making changes, explain what you're doing. Be concise and collaborative.",
+			"\nWhen making changes, explain what you're doing. Be concise and collaborative."+
+			"\n\n## Git & GitHub Workflow (MANDATORY)\n"+
+			"NEVER push directly to main or master. ALL code changes must go through a Pull Request:\n"+
+			"1. Create a feature branch: `git checkout -b <descriptive-branch-name>`\n"+
+			"2. Stage and commit: `git add -A && git commit -m \"<message>\"`\n"+
+			"3. Push the branch: `git push origin <branch-name>`\n"+
+			"4. Create a PR: `gh pr create --title \"<title>\" --body \"<description>\" --base main`\n"+
+			"5. Post the PR URL in the session — this triggers the in-session approval flow.\n"+
+			"Do NOT ask users to run git commands themselves. Do NOT push to main/master directly. "+
+			"If git identity is not set, configure it first: "+
+			"`git config user.email \"cas@agent.local\" && git config user.name \"CAS Agent\"`\n"+
+			"Always use $GH_TOKEN for authentication when pushing.",
 		workDir, credSection,
 	)
 
@@ -1585,7 +1636,7 @@ var allowedModels = map[string]bool{
 	"claude-haiku-4-5":   true,
 }
 
-func (sm *SessionManager) streamResponse(sessionID string, session *Session, anthropicKey string, modelID string, userEnv []string) {
+func (sm *SessionManager) streamResponse(sessionID string, session *Session, anthropicKey string, modelID string, userEnv []string, requesterUserID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	session.mu.Lock()
@@ -1734,6 +1785,11 @@ func (sm *SessionManager) streamResponse(sessionID string, session *Session, ant
 			session.AddMessage(assistantMsg)
 			sm.persistMessage(session, assistantMsg)
 			sm.hub.BroadcastSessionList(sm.sessionList())
+			// Detect a newly created GitHub PR URL in the response and register
+			// it for in-session approval if a requester is known.
+			if requesterUserID != "" && DB != nil {
+				go sm.detectAndRegisterPR(assistantMsg.Content, sessionID, requesterUserID)
+			}
 		}
 
 		// No tool calls — we're done.
@@ -1777,4 +1833,65 @@ func (sm *SessionManager) streamResponse(sessionID string, session *Session, ant
 			anthropic.NewUserMessage(resultBlocks...),
 		)
 	}
+}
+
+// postSystemMessage saves and broadcasts a system-level text message to a session.
+func (sm *SessionManager) postSystemMessage(sessionID, text string, hub *Hub) {
+	session, ok := sm.GetSession(sessionID)
+	if !ok || session == nil {
+		return
+	}
+	msg := Message{
+		ID:        uuid.New().String(),
+		Role:      "assistant",
+		Content:   text,
+		Sender:    "CAS",
+		Timestamp: time.Now(),
+	}
+	session.AddMessage(msg)
+	sm.persistMessage(session, msg)
+	hub.BroadcastToSession(sessionID, WSMessage{Type: "message", Message: &msg})
+}
+
+// prURLRegex matches GitHub PR URLs: https://github.com/owner/repo/pull/123
+var prURLRegex = regexp.MustCompile(`https://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)`)
+
+// detectAndRegisterPR scans the agent's response for a GitHub PR URL.
+// If found and no pending PR already exists for this session, it registers it
+// in the DB and broadcasts a pr_pending WS event to all session members.
+func (sm *SessionManager) detectAndRegisterPR(text, sessionID, requesterUserID string) {
+	if DB == nil {
+		return
+	}
+	matches := prURLRegex.FindStringSubmatch(text)
+	if matches == nil {
+		return
+	}
+	prURL := matches[0]
+	repo := matches[1]
+	prNumber, _ := strconv.Atoi(matches[2])
+
+	// Skip if a pending PR already exists for this session (avoid duplicates).
+	existing, _ := GetPendingPRForSession(context.Background(), sessionID)
+	if existing != nil {
+		return
+	}
+
+	requesterName := requesterUserID
+	if profile, err := GetUser(context.Background(), requesterUserID); err == nil && profile != nil {
+		if profile.Name != "" {
+			requesterName = profile.Name
+		}
+	}
+
+	pr, err := CreatePendingPR(context.Background(), sessionID, prURL, prNumber, repo, requesterUserID, requesterName)
+	if err != nil {
+		log.Printf("detectAndRegisterPR: %v", err)
+		return
+	}
+	log.Printf("[pr] registered pending PR %s for session %s", prURL, sessionID)
+	sm.hub.BroadcastToSession(sessionID, WSMessage{
+		Type:      "pr_pending",
+		PendingPR: pr,
+	})
 }

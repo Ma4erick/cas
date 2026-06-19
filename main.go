@@ -2,10 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
 	"flag"
+	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -34,7 +37,7 @@ func logVerbose(format string, args ...any) {
 // polling paths that would flood the log buffer and obscure useful entries.
 func verboseHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if Verbose && (r.Method != http.MethodGet || r.Header.Get("Upgrade") == "websocket") {
+		if Verbose && r.Method != http.MethodGet {
 			log.Printf("[http] %s %s %s", r.Method, r.URL.Path, r.RemoteAddr)
 		}
 		h.ServeHTTP(w, r)
@@ -357,10 +360,21 @@ func main() {
 			http.Error(w, "cannot read projects directory", http.StatusInternalServerError)
 			return
 		}
+		// Build set of work_dir values used by active sessions so we only
+		// show folders that belong to a live session. Orphaned directories
+		// (from deleted sessions) are excluded and removed from disk.
+		activeDirs := sm.ActiveWorkDirs()
 		var folders []string
 		for _, e := range entries {
-			if e.IsDir() {
+			if !e.IsDir() {
+				continue
+			}
+			fullPath := filepath.Join(sm.ProjectsDir(), e.Name())
+			if activeDirs[fullPath] {
 				folders = append(folders, e.Name())
+			} else {
+				// Clean up orphaned directory left over from a deleted session.
+				_ = os.RemoveAll(fullPath)
 			}
 		}
 		json.NewEncoder(w).Encode(folders)
@@ -421,6 +435,20 @@ func main() {
 			} else {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
+		case "approve-pr":
+			if r.Method == http.MethodPost {
+				approvePR(w, r, sessionID, sm, hub)
+			} else if r.Method == http.MethodGet {
+				w.Header().Set("Content-Type", "application/json")
+				pr, err := GetPendingPRForSession(r.Context(), sessionID)
+				if err != nil || pr == nil {
+					json.NewEncoder(w).Encode(nil)
+					return
+				}
+				json.NewEncoder(w).Encode(pr)
+			} else {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
 		default:
 			if strings.HasPrefix(sub, "messages/") {
 				msgID := strings.TrimPrefix(sub, "messages/")
@@ -440,6 +468,7 @@ func main() {
 	})
 
 	// Auth middleware wraps all /api/ routes except /api/auth/*.
+
 	authedMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/api/auth/") {
 			requireAuth(mux).ServeHTTP(w, r)
@@ -560,6 +589,126 @@ func requireAuth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// approvePR handles POST /api/sessions/{id}/approve-pr.
+// The approver's GitHub token is used to submit an approving review and merge the PR.
+func approvePR(w http.ResponseWriter, r *http.Request, sessionID string, sm *SessionManager, hub *Hub) {
+	w.Header().Set("Content-Type", "application/json")
+	ctx := r.Context()
+
+	approverID := getUserID(w, r)
+	if approverID == "" {
+		http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
+		return
+	}
+
+	pr, err := GetPendingPRForSession(ctx, sessionID)
+	if err != nil || pr == nil {
+		http.Error(w, `{"error":"no pending PR for this session"}`, http.StatusNotFound)
+		return
+	}
+
+	if pr.RequesterUserID == approverID {
+		http.Error(w, `{"error":"you cannot approve your own PR"}`, http.StatusForbidden)
+		return
+	}
+
+	// Get approver's GitHub token (OAuth first, PAT as fallback).
+	oauthTok, pat := GetUserGitHubTokens(ctx, approverID)
+	ghToken := oauthTok
+	if ghToken == "" {
+		ghToken = pat
+	}
+	if ghToken == "" {
+		approverProfile, _ := GetUser(ctx, approverID)
+		name := approverID
+		if approverProfile != nil && approverProfile.Name != "" {
+			name = approverProfile.Name
+		}
+		// Post an in-session notice and reject.
+		notice := fmt.Sprintf("**%s** does not have a GitHub token configured. Go to Profile → GitHub Token to add one before approving.", name)
+		sm.postSystemMessage(sessionID, notice, hub)
+		http.Error(w, `{"error":"no GitHub token configured"}`, http.StatusUnprocessableEntity)
+		return
+	}
+
+	approverProfile, _ := GetUser(ctx, approverID)
+	approverName := approverID
+	if approverProfile != nil && approverProfile.Name != "" {
+		approverName = approverProfile.Name
+	}
+
+	// Submit approving review via GitHub API.
+	// If the approver shares the same GitHub account as the requester (e.g. demo
+	// mode with one GitHub account), skip the review and go straight to merge.
+	if err := githubPRReview(ghToken, pr.Repo, pr.PRNumber, "APPROVE", "Approved via CAS"); err != nil {
+		if strings.Contains(err.Error(), "approve your own pull request") {
+			log.Printf("[pr] self-approval detected, skipping review step and merging directly")
+		} else {
+			log.Printf("[pr] review error: %v", err)
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, fmt.Sprintf("GitHub review failed: %v", err)), http.StatusBadGateway)
+			return
+		}
+	}
+
+	// Merge the PR.
+	if err := githubPRMerge(ghToken, pr.Repo, pr.PRNumber); err != nil {
+		log.Printf("[pr] merge error: %v", err)
+		http.Error(w, fmt.Sprintf(`{"error":"GitHub merge failed: %v"}`, err), http.StatusBadGateway)
+		return
+	}
+
+	_ = ApprovePendingPR(ctx, pr.ID)
+
+	// Post confirmation message to session.
+	notice := fmt.Sprintf("PR [#%d](%s) approved and merged by **%s**.", pr.PRNumber, pr.PRURL, approverName)
+	sm.postSystemMessage(sessionID, notice, hub)
+
+	// Broadcast pr_approved so the banner clears on all clients.
+	hub.BroadcastToSession(sessionID, WSMessage{Type: "pr_approved", Text: pr.ID})
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "merged"})
+}
+
+// githubPRReview submits a review on a GitHub PR.
+func githubPRReview(token, repo string, prNumber int, event, body string) error {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/reviews", repo, prNumber)
+	payload, _ := json.Marshal(map[string]string{"event": event, "body": body})
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+// githubPRMerge merges a GitHub PR using squash strategy.
+func githubPRMerge(token, repo string, prNumber int) error {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/merge", repo, prNumber)
+	payload, _ := json.Marshal(map[string]string{"merge_method": "squash"})
+	req, _ := http.NewRequest(http.MethodPut, url, bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
 }
 
 func localIP() string {

@@ -741,6 +741,7 @@
 
   .msg-bubble.callout { color: var(--text-muted); font-style: italic; }
   .msg-bubble.callout .mention { color: var(--accent); font-style: normal; font-weight: 600; }
+  .msg-bubble .mention { color: var(--accent); font-weight: 600; }
 
   .msg-bubble blockquote {
     border-left: 3px solid var(--accent);
@@ -950,6 +951,36 @@
   #empty-state p { font-size: 14px; }
 
   /* Input area */
+  #pr-approval-banner {
+    margin: 0 24px 0;
+    padding: 10px 14px;
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+  }
+  #pr-approval-banner .pr-info { flex: 1; color: var(--text); }
+  #pr-approval-banner .pr-info a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  #pr-approval-banner .pr-info a:hover { text-decoration: underline; }
+  #pr-approval-banner .pr-requester { color: var(--text-muted); font-size: 12px; }
+  #pr-approve-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #pr-approve-btn:hover { opacity: 0.85; }
+  #pr-approve-btn:disabled { opacity: 0.5; cursor: default; }
+
   #input-area {
     padding: 12px 24px 18px;
     border-top: 1px solid var(--border);
@@ -1537,6 +1568,7 @@
     </div>
   </div>
 
+  <div id="pr-approval-banner" style="display:none;"></div>
   <div id="input-area" style="position:relative;">
     <div id="mention-dropdown"></div>
     <div id="emoji-picker">
@@ -1671,7 +1703,7 @@
       <label>GitHub PAT <span class="key-status key-unset" id="github-pat-status">Not set</span>
         <span style="font-size:10px;font-weight:400;color:var(--text-muted);text-transform:none;letter-spacing:0;margin-left:6px;">Fallback if OAuth fails (e.g. pending SSO)</span>
       </label>
-      <div class="token-paste-field" style="display:none;">
+      <div class="token-paste-field">
         <input id="profile-github" type="password" placeholder="ghp_… (stored separately from OAuth)" autocomplete="off" spellcheck="false">
       </div>
     </div>
@@ -1684,10 +1716,10 @@
         </button>
         <p id="atlassian-connected-as" style="display:none;font-size:12px;color:#23a559;margin-top:6px;"></p>
       </div>
-      <div class="token-paste-field" style="display:none;">
-        <input id="profile-atlassian-token" type="password" placeholder="API token (paste manually)" autocomplete="off" spellcheck="false">
+      <div class="token-paste-field">
+        <input id="profile-atlassian-token" type="password" placeholder="API token — paste new to update" autocomplete="off" spellcheck="false">
         <p style="font-size:11px;color:var(--text-muted);margin-top:5px;">
-          <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" style="color:var(--text-muted);">Generate API token manually ↗</a> — copy immediately, shown once only.
+          <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" style="color:var(--text-muted);">Generate API token ↗</a> — paste above and click Save changes.
         </p>
       </div>
     </div>
@@ -2501,7 +2533,8 @@ modalCreate.addEventListener('click', async () => {
 
 async function loadSessions() {
   const res = await fetch(apiURL('/api/sessions'));
-  state.sessions = await res.json();
+  const data = await res.json();
+  state.sessions = Array.isArray(data) ? data : [];
   // First-time migration: auto-join all existing sessions so returning users
   // don't see an empty sidebar after this change. Only runs once per browser.
   if (!localStorage.getItem('cas-initialized') && state.sessions && state.sessions.length > 0) {
@@ -2684,7 +2717,12 @@ function selectSession(id) {
   if (window.innerWidth > 640) messageInput.focus();
 
   renderSessionList();
+  hidePRBanner();
   connectWS(id);
+  // Check for a pending PR in this session (e.g. raised before we joined).
+  fetch(apiURL(`/api/sessions/${id}/approve-pr`))
+    .then(r => r.json()).then(pr => { if (pr && pr.status === 'pending') showPRBanner(pr); })
+    .catch(() => {});
 }
 
 function connectWS(sessionID) {
@@ -2782,6 +2820,14 @@ function handleWS(msg) {
     case 'message_deleted':
       const el = document.getElementById('msg-' + msg.messageId);
       if (el) el.remove();
+      break;
+
+    case 'pr_pending':
+      if (msg.pendingPr) showPRBanner(msg.pendingPr);
+      break;
+
+    case 'pr_approved':
+      hidePRBanner();
       break;
 
     case 'system':
@@ -2962,6 +3008,12 @@ function updateStreamingMessage(id, text) {
 function finalizeStreamingMessage(id, text) {
   const bubble = document.getElementById('bubble-' + id);
   if (!bubble) return;
+  if (!text.trim()) {
+    // No text output — remove the empty message group entirely.
+    const group = document.getElementById('msg-' + id);
+    if (group) group.remove();
+    return;
+  }
   bubble.innerHTML = marked.parse(text);
   bubble.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
 }
@@ -2972,6 +3024,61 @@ function showError(msg) {
   el.textContent = 'Error: ' + msg;
   messages.appendChild(el);
   scrollToBottom();
+}
+
+// ── PR Approval Banner ───────────────────────────────────────────────────────
+const prBanner = document.getElementById('pr-approval-banner');
+let currentPendingPR = null;
+
+function showPRBanner(pr) {
+  currentPendingPR = pr;
+  const isRequester = serverProfile && serverProfile.id === pr.requesterUserId;
+  prBanner.innerHTML = '';
+
+  const info = document.createElement('div');
+  info.className = 'pr-info';
+  info.innerHTML = `PR <a href="${escHtml(pr.prUrl)}" target="_blank" rel="noopener">#${pr.prNumber}</a> raised by <strong>${escHtml(pr.requesterName)}</strong> — awaiting approval to merge.`;
+  prBanner.appendChild(info);
+
+  const viewBtn = document.createElement('a');
+  viewBtn.href = pr.prUrl;
+  viewBtn.target = '_blank';
+  viewBtn.rel = 'noopener';
+  viewBtn.textContent = 'View PR';
+  viewBtn.style.cssText = 'font-size:13px;color:var(--accent);text-decoration:none;white-space:nowrap;';
+  prBanner.appendChild(viewBtn);
+
+  if (!isRequester) {
+    const approveBtn = document.createElement('button');
+    approveBtn.id = 'pr-approve-btn';
+    approveBtn.textContent = 'Approve & Merge';
+    approveBtn.onclick = async () => {
+      approveBtn.disabled = true;
+      approveBtn.textContent = 'Approving…';
+      try {
+        const res = await fetch(apiURL(`/api/sessions/${state.activeSessionID}/approve-pr`), { method: 'POST' });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          approveBtn.disabled = false;
+          approveBtn.textContent = 'Approve & Merge';
+          showError(data.error || 'Approval failed');
+        }
+      } catch (e) {
+        approveBtn.disabled = false;
+        approveBtn.textContent = 'Approve & Merge';
+        showError('Could not reach server');
+      }
+    };
+    prBanner.appendChild(approveBtn);
+  }
+
+  prBanner.style.display = 'flex';
+}
+
+function hidePRBanner() {
+  currentPendingPR = null;
+  prBanner.style.display = 'none';
+  prBanner.innerHTML = '';
 }
 
 async function send() {
@@ -3191,11 +3298,14 @@ function updateMentionHighlight() {
 }
 
 function insertMention(name) {
+  // Insert only the first word so @London is inserted rather than @London Summers.
+  // The backend resolves mentions by first word of display name.
+  const token = name.split(' ')[0];
   const val = messageInput.value;
   const before = val.slice(0, mentionStart);
   const after  = val.slice(messageInput.selectionStart);
-  messageInput.value = before + '@' + name + ' ' + after;
-  const pos = mentionStart + name.length + 2;
+  messageInput.value = before + '@' + token + ' ' + after;
+  const pos = mentionStart + token.length + 2;
   messageInput.setSelectionRange(pos, pos);
   messageInput.focus();
   hideMentionDropdown();

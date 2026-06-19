@@ -29,6 +29,7 @@ type WSMessage struct {
 	ToolOutput string      `json:"toolOutput,omitempty"`
 	IsError    bool        `json:"isError,omitempty"`
 	Text       string      `json:"text,omitempty"`
+	PendingPR  *PendingPR  `json:"pendingPr,omitempty"`
 }
 
 type Client struct {

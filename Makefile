@@ -97,8 +97,8 @@ pf-stop:
 ## Port-forward CAS on all interfaces (localhost + LAN)
 ## Access via http://localhost:8080 or http://<your-lan-ip>:8080
 cas-pf:
-	kubectl -n cas port-forward svc/cas-cas 8080:80 --address 0.0.0.0
+	kubectl -n cas port-forward svc/cas-cas 8080:8080 --address 0.0.0.0
 
 ## Port-forward CAS on localhost only
 cas-pf-local:
-	kubectl -n cas port-forward svc/cas-cas 8080:80
+	kubectl -n cas port-forward svc/cas-cas 8080:8080
